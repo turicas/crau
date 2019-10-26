@@ -2,3 +2,5 @@
 
 black
 ipython
+twine
+wheel
