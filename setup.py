@@ -7,7 +7,7 @@ setup(
     description=(
         "Web crawler",
     ),
-    version="0.1.0dev0",
+    version="0.1.0",
     author="Álvaro Justen",
     author_email="alvarojusten@gmail.com",
     url="https://github.com/turicas/crau/",
