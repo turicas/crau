@@ -1,6 +1,5 @@
-# coding: utf-8
-
 from setuptools import find_packages, setup
+
 
 setup(
     name="crau",
@@ -18,6 +17,7 @@ setup(
         "tqdm",
         "warcio",
     ],
+    packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
     keywords="web crawling scraping",
     entry_points={"console_scripts": ["crau = crau.cli:cli"]},
     classifiers=[
