@@ -9,6 +9,7 @@ from pathlib import Path
 
 import click
 from scrapy.crawler import CrawlerProcess
+from scrapy.utils.conf import arglist_to_dict
 
 from .spider import CrauSpider
 from .utils import get_urls_from_file, get_warc_uris, get_warc_record
@@ -17,6 +18,16 @@ from .version import __version__
 def run_command(command):
     print(f"*** Running command: {command}")
     return subprocess.call(shlex.split(command))
+
+
+def load_settings(ctx, param, value):
+    settings = {
+        'STATS_CLASS': 'crau.utils.StdoutStatsCollector',
+        'LOG_LEVEL': 'CRITICAL',
+        'HTTPCACHE_ENABLED': False,
+    }
+    settings.update(arglist_to_dict(value))
+    return settings
 
 
 @click.group()
@@ -53,8 +64,9 @@ def extract_uri(warc_filename, uri, output):
 @click.argument("warc_filename")
 @click.option("--input-filename", "-i")
 @click.option("--input-encoding", default="utf-8")
+@click.option("--settings", "-s", multiple=True, default=[], callback=load_settings)
 @click.argument("URLs", nargs=-1, required=False)
-def archive(warc_filename, input_filename, input_encoding, urls):
+def archive(warc_filename, input_filename, input_encoding, settings, urls):
     # TODO: use list of URIs instead of filename
     # TODO: change loglevel by CLI parameter
     # TODO: add depth option
@@ -63,8 +75,6 @@ def archive(warc_filename, input_filename, input_encoding, urls):
         click.echo("ERROR: at least one URL must be provided (or a file containing one per line).", err=True)
         exit(1)
 
-    cache = False
-    log_level = "CRITICAL"
     max_depth = 1
     if input_filename:
         if not Path(input_filename).exists():
@@ -72,13 +82,7 @@ def archive(warc_filename, input_filename, input_encoding, urls):
             exit(2)
         urls = get_urls_from_file(input_filename, encoding=input_encoding)
 
-    process = CrawlerProcess(
-        settings={
-            "STATS_CLASS": "crau.utils.StdoutStatsCollector",
-            "LOG_LEVEL": log_level,
-            "HTTPCACHE_ENABLED": cache,
-        }
-    )
+    process = CrawlerProcess(settings=settings)
     process.crawl(
         CrauSpider,
         warc_filename=warc_filename,
