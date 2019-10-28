@@ -66,9 +66,11 @@ def extract_uri(warc_filename, uri, output):
 @click.option("--input-encoding", default="utf-8")
 @click.option("--cache", is_flag=True)
 @click.option("--max-depth", default=1)
+@click.option("--log-level", required=False)
 @click.option("--settings", "-s", multiple=True, default=[], callback=load_settings)
 @click.argument("URLs", nargs=-1, required=False)
-def archive(warc_filename, input_filename, input_encoding, cache, max_depth, settings, urls):
+def archive(warc_filename, input_filename, input_encoding, cache, max_depth,
+            log_level, settings, urls):
     # TODO: use list of URIs instead of filename
     # TODO: change loglevel by CLI parameter
     # TODO: add depth option
@@ -85,6 +87,9 @@ def archive(warc_filename, input_filename, input_encoding, cache, max_depth, set
 
     if cache:
         settings['HTTPCACHE_ENABLED'] = True
+
+    if log_level:
+        settings['LOG_LEVEL'] = log_level
 
     process = CrawlerProcess(settings=settings)
     process.crawl(
