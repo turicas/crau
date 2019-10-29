@@ -199,8 +199,6 @@ class CrauSpider(scrapy.Spider):
         self.write_warc(response)
 
     def parse_media(self, response):
-        meta = response.request.meta
-
         logging.debug(f"Saving MEDIA {response.request.url}")
         self.write_warc(response)
 
@@ -257,9 +255,10 @@ class CrauSpider(scrapy.Spider):
 
     def collect_code(self, main_url, code_type, code, depth):
         if depth > self.max_depth:
-            logging.debug(
-                f"[{depth}] IGNORING (depth exceeded) get link {link_type} {url}"
-            )
+            # FIXME: undefined variables link_type and url
+            # logging.debug(
+            #     f"[{depth}] IGNORING (depth exceeded) get link {link_type} {url}"
+            # )
             return []
 
         if code_type == "css":
