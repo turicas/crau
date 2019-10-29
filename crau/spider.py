@@ -6,12 +6,9 @@ from collections import namedtuple
 
 import scrapy
 from scrapy.utils.request import request_fingerprint
-from warcio.statusandheaders import StatusAndHeaders
 from warcio.warcwriter import WARCWriter
 
-
-# TODO: create a WARCWriter class
-# TODO: create a extract_resources function
+from .utils import write_warc_request_response
 
 
 Resource = namedtuple("Resource", ["name", "type", "content"])
@@ -80,6 +77,8 @@ class CrauSpider(scrapy.Spider):
             kwargs["dont_filter"] = True
         request = request_class(*args, **kwargs)
         request_hash = request_fingerprint(request)
+        # TODO: may move this in-memory set to a temp file since the number of
+        # requests can be large
         if request_hash in self._request_history:
             return None
         else:
@@ -87,47 +86,7 @@ class CrauSpider(scrapy.Spider):
             return request
 
     def write_warc(self, response):
-        request = response.request
-        path = request.url[
-            request.url.find("/", len(urlparse(request.url).scheme) + 3) :
-        ]
-        # TODO: fix if list has more than one value
-        headers_list = [
-            (key.decode("ascii"), value[0].decode("ascii"))
-            for key, value in request.headers.items()
-        ]
-        # TODO: fix HTTP version
-        http_headers = StatusAndHeaders(
-            f"{request.method} {path} HTTP/1.1", headers_list, is_http_request=True
-        )
-        self.warc_writer.write_record(
-            self.warc_writer.create_warc_record(
-                request.url, "request", http_headers=http_headers
-            )
-        )
-
-        # TODO: fix if list has more than one value
-        headers_list = [
-            (key.decode("ascii"), value[0].decode("ascii"))
-            for key, value in response.headers.items()
-        ]
-        # TODO: fix status
-        # TODO: fix HTTP version
-        http_headers = StatusAndHeaders(
-            f"{response.status} OK",
-            headers_list,
-            protocol="HTTP/1.1",
-            is_http_request=False,
-        )
-        # TODO: what about redirects?
-        self.warc_writer.write_record(
-            self.warc_writer.create_warc_record(
-                response.url,
-                "response",
-                payload=io.BytesIO(response.body),
-                http_headers=http_headers,
-            )
-        )
+        write_warc_request_response(self.warc_writer, response)
 
     def start_requests(self):
         self.warc_fobj = open(self.warc_filename, mode="wb")
@@ -255,13 +214,11 @@ class CrauSpider(scrapy.Spider):
 
     def collect_code(self, main_url, code_type, code, depth):
         if depth > self.max_depth:
-            # FIXME: undefined variables link_type and url
-            # logging.debug(
-            #     f"[{depth}] IGNORING (depth exceeded) get link {link_type} {url}"
-            # )
+            logging.debug(
+                f"[{depth}] IGNORING (depth exceeded) getting dependencies for {code_type}"
+            )
             return []
-
-        if code_type == "css":
+        elif code_type == "css":
             if isinstance(code, bytes):
                 code = code.decode("utf-8")  # TODO: decode properly
             requests = []

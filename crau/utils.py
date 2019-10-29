@@ -1,5 +1,10 @@
+import io
+from urllib.parse import urlparse
+
 from scrapy.statscollectors import MemoryStatsCollector
 from warcio.archiveiterator import ArchiveIterator
+from warcio.statusandheaders import StatusAndHeaders
+from warcio.warcwriter import WARCWriter
 from tqdm import tqdm
 
 
@@ -35,3 +40,46 @@ class StdoutStatsCollector(MemoryStatsCollector):
         if key == "response_received_count":
             self.progress_bar.n = self._stats["response_received_count"]
             self.progress_bar.refresh()
+
+
+def get_headers_list(headers):
+    # TODO: fix if list has more than one value
+    return [
+        (key.decode("ascii"), value[0].decode("ascii"))
+        for key, value in headers.items()
+    ]
+
+def write_warc_request_response(writer, response):
+    request = response.request
+    path = request.url[
+        request.url.find("/", len(urlparse(request.url).scheme) + 3) :
+    ]
+    # TODO: fix HTTP version
+    http_headers = StatusAndHeaders(
+        f"{request.method} {path} HTTP/1.1",
+        get_headers_list(request.headers),
+        is_http_request=True
+    )
+    writer.write_record(
+        writer.create_warc_record(
+            request.url, "request", http_headers=http_headers
+        )
+    )
+
+    # TODO: fix status
+    # TODO: fix HTTP version
+    http_headers = StatusAndHeaders(
+        f"{response.status} OK",
+        get_headers_list(response.headers),
+        protocol="HTTP/1.1",
+        is_http_request=False,
+    )
+    # TODO: what about redirects?
+    writer.write_record(
+        writer.create_warc_record(
+            response.url,
+            "response",
+            payload=io.BytesIO(response.body),
+            http_headers=http_headers,
+        )
+    )
