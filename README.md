@@ -11,11 +11,27 @@ list of URLs.
 
 ## Running
 
-Archive a list of URLs:
+### Archiving
+
+Archive a list of URLs by passing them via command-line:
 
 ```bash
 crau archive myarchive.warc.gz http://example.com/page-1 http://example.org/page-2 ... http://example.net/page-N
 ```
+
+or passing a text file (one URL per line):
+
+```bash
+echo "http://example.com/page-1" > urls.txt
+echo "http://example.org/page-2" >> urls.txt
+echo "http://example.net/page-N" >> urls.txt
+
+crau archive myarchive.warc.gz -i urls.txt
+```
+
+Run `crau archive --help` for more options.
+
+### Extracting data from an archive
 
 List archived URLs in a WARC file:
 
@@ -28,6 +44,8 @@ Extract a file from an archive:
 ```bash
 crau extract myarchive.warc.gz https://example.com/page.html extracted-page.html
 ```
+
+### Playing the archived data on your Web browser
 
 Run a server on [localhost:8080](http://localhost:8080) to play your archive:
 
