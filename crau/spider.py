@@ -60,7 +60,6 @@ def extract_resources(response):
 class CrauSpider(scrapy.Spider):
 
     name = "crawler-spider"
-    # TODO: do not ignore 403 and other status codes (handle_httpstatus_list)
     # TODO: remove "#..." from URLs
 
     def __init__(self, warc_filename, urls, max_depth=1):
@@ -73,8 +72,12 @@ class CrauSpider(scrapy.Spider):
     def make_request(self, request_class=scrapy.Request, *args, **kwargs):
         """Method to create requests and implements a custom dedup filter"""
 
-        if "dont_filter" not in kwargs:
-            kwargs["dont_filter"] = True
+        kwargs["dont_filter"] = kwargs.get("dont_filter", True)
+
+        meta = kwargs.get("meta", {})
+        meta["handle_httpstatus_all"] = meta.get("handle_httpstatus_all", True)
+        kwargs["meta"] = meta
+
         request = request_class(*args, **kwargs)
 
         # This `if` filters duplicated requests - we don't use scrapy's dedup
