@@ -23,9 +23,10 @@ def run_command(command):
 
 def load_settings(ctx, param, value):
     settings = {
-        "STATS_CLASS": "crau.utils.StdoutStatsCollector",
-        "LOG_LEVEL": "CRITICAL",
         "HTTPCACHE_ENABLED": False,
+        "LOG_LEVEL": "CRITICAL",
+        "STATS_CLASS": "crau.utils.StdoutStatsCollector",
+        "USER_AGENT": f"crau {__version__}",
     }
     settings.update(arglist_to_dict(value))
     return settings
@@ -68,6 +69,7 @@ def extract_uri(warc_filename, uri, output):
 @click.option("--cache", is_flag=True)
 @click.option("--max-depth", default=1)
 @click.option("--log-level", required=False)
+@click.option("--user-agent", required=False)
 @click.option("--settings", "-s", multiple=True, default=[], callback=load_settings)
 @click.argument("URLs", nargs=-1, required=False)
 def archive(
@@ -78,6 +80,7 @@ def archive(
     max_depth,
     log_level,
     settings,
+    user_agent,
     urls,
 ):
 
@@ -100,11 +103,15 @@ def archive(
     if log_level:
         settings["LOG_LEVEL"] = log_level
 
+    if user_agent:
+        settings["USER_AGENT"] = user_agent
+
     process = CrawlerProcess(settings=settings)
     process.crawl(
         CrauSpider, warc_filename=warc_filename, urls=urls, max_depth=max_depth
     )
     process.start()
+    # TODO: if there's an error, print it
 
 
 @cli.command("play", help="Run a backend playing your archive")

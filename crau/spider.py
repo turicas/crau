@@ -13,6 +13,8 @@ from .utils import write_warc_request_response
 
 Resource = namedtuple("Resource", ["name", "type", "content"])
 REGEXP_CSS_URL = re.compile(r"""url\(['"]?(.*?)['"]?\)""")
+# TODO: add all other "//link/@href"
+# TODO: handle "//" URLs correctly
 EXTRACTORS = {
     "media": {
         "link": (
