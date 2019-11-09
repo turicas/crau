@@ -42,7 +42,7 @@ def cli():
 @cli.command("list", help="List URIs of response records stored in a WARC file")
 @click.argument("warc_filename")
 def list_uris(warc_filename):
-    for uri in get_warc_uris(warc_filename):
+    for uri in get_warc_uris(warc_filename, record_type="response"):
         click.echo(uri)
 
 

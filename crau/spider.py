@@ -80,6 +80,8 @@ class CrauSpider(scrapy.Spider):
         kwargs["meta"] = meta
 
         request = request_class(*args, **kwargs)
+        if "#" in request.url:
+            request = request.replace(url=request.url[:request.url.find("#")])
 
         # This `if` filters duplicated requests - we don't use scrapy's dedup
         # filter because it has a bug, which filters out requests in undesired

@@ -113,10 +113,10 @@ def get_urls_from_file(filename, encoding="utf-8"):
             yield line.strip()
 
 
-def get_warc_uris(filename):
+def get_warc_uris(filename, record_type):
     with open(filename, mode="rb") as fobj:
         for record in ArchiveIterator(fobj):
-            if record.rec_type == "response":
+            if record_type is None or record.rec_type == record_type:
                 yield record.rec_headers.get_header("WARC-Target-URI")
 
 
@@ -154,11 +154,10 @@ def get_headers_list(headers):
 
 def write_warc_request_response(writer, response):
     request = response.request
-    # TODO: fix HTTP version
     path = request.url[request.url.find("/", len(urlparse(request.url).scheme) + 3) :]
-    # TODO: remove "#..." from URLS
 
     http_headers = StatusAndHeaders(
+        # TODO: fix HTTP version
         f"{request.method} {path} HTTP/1.1",
         get_headers_list(request.headers),
         is_http_request=True,
