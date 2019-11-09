@@ -1,6 +1,8 @@
-release:
-	rm -rf build/* build/*
+clean:
+	rm -rf .egg-info build dist
+
+release: clean
 	python setup.py sdist bdist_wheel
 	twine upload dist/*
 
-.PHONY:	release
+.PHONY:	clean release
