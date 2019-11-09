@@ -76,9 +76,13 @@ class CrauSpider(scrapy.Spider):
         if "dont_filter" not in kwargs:
             kwargs["dont_filter"] = True
         request = request_class(*args, **kwargs)
+
+        # This `if` filters duplicated requests - we don't use scrapy's dedup
+        # filter because it has a bug, which filters out requests in undesired
+        # cases <https://github.com/scrapy/scrapy/issues/1225>.
         request_hash = request_fingerprint(request)
         # TODO: may move this in-memory set to a temp file since the number of
-        # requests can be large
+        # requests can be pretty large.
         if request_hash in self._request_history:
             return None
         else:
@@ -86,6 +90,10 @@ class CrauSpider(scrapy.Spider):
             return request
 
     def write_warc(self, response):
+        # TODO: transform this method into `write_response` so we can have
+        # other response writers than WARC (CSV, for example - would be great
+        # if we can add specific parsers to save HTML's title and text into
+        # CSV, for example).
         write_warc_request_response(self.warc_writer, response)
 
     def start_requests(self):
@@ -95,10 +103,7 @@ class CrauSpider(scrapy.Spider):
 
         for url in self.urls:
             yield self.make_request(
-                url=url,
-                meta={"depth": 0, "main_url": url},
-                callback=self.parse,
-                # TODO: check content type, then call specific parse method
+                url=url, meta={"depth": 0, "main_url": url}, callback=self.parse
             )
 
     def parse(self, response):

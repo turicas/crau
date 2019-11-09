@@ -15,6 +15,7 @@ from .spider import CrauSpider
 from .utils import get_urls_from_file, get_warc_uris, get_warc_record
 from .version import __version__
 
+
 def run_command(command):
     print(f"*** Running command: {command}")
     return subprocess.call(shlex.split(command))
@@ -22,9 +23,9 @@ def run_command(command):
 
 def load_settings(ctx, param, value):
     settings = {
-        'STATS_CLASS': 'crau.utils.StdoutStatsCollector',
-        'LOG_LEVEL': 'CRITICAL',
-        'HTTPCACHE_ENABLED': False,
+        "STATS_CLASS": "crau.utils.StdoutStatsCollector",
+        "LOG_LEVEL": "CRITICAL",
+        "HTTPCACHE_ENABLED": False,
     }
     settings.update(arglist_to_dict(value))
     return settings
@@ -69,14 +70,22 @@ def extract_uri(warc_filename, uri, output):
 @click.option("--log-level", required=False)
 @click.option("--settings", "-s", multiple=True, default=[], callback=load_settings)
 @click.argument("URLs", nargs=-1, required=False)
-def archive(warc_filename, input_filename, input_encoding, cache, max_depth,
-            log_level, settings, urls):
-    # TODO: use list of URIs instead of filename
-    # TODO: change loglevel by CLI parameter
-    # TODO: add depth option
+def archive(
+    warc_filename,
+    input_filename,
+    input_encoding,
+    cache,
+    max_depth,
+    log_level,
+    settings,
+    urls,
+):
 
     if not input_filename and not urls:
-        click.echo("ERROR: at least one URL must be provided (or a file containing one per line).", err=True)
+        click.echo(
+            "ERROR: at least one URL must be provided (or a file containing one per line).",
+            err=True,
+        )
         exit(1)
 
     if input_filename:
@@ -86,17 +95,14 @@ def archive(warc_filename, input_filename, input_encoding, cache, max_depth,
         urls = get_urls_from_file(input_filename, encoding=input_encoding)
 
     if cache:
-        settings['HTTPCACHE_ENABLED'] = True
+        settings["HTTPCACHE_ENABLED"] = True
 
     if log_level:
-        settings['LOG_LEVEL'] = log_level
+        settings["LOG_LEVEL"] = log_level
 
     process = CrawlerProcess(settings=settings)
     process.crawl(
-        CrauSpider,
-        warc_filename=warc_filename,
-        urls=urls,
-        max_depth=max_depth,
+        CrauSpider, warc_filename=warc_filename, urls=urls, max_depth=max_depth
     )
     process.start()
 
@@ -117,6 +123,6 @@ def play(warc_filename):
     os.chdir(temp_dir)
     run_command(f'wb-manager init "{collection_name}"')
     run_command(f'wb-manager add "{collection_name}" "{full_filename}"')
-    run_command(f'wayback')
+    run_command(f"wayback")
     shutil.rmtree(temp_dir)
     os.chdir(old_cwd)

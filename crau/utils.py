@@ -20,20 +20,23 @@ def get_warc_uris(filename):
             if record.rec_type == "response":
                 yield record.rec_headers.get_header("WARC-Target-URI")
 
+
 def get_warc_record(filename, uri):
     with open(filename, mode="rb") as fobj:
         for record in ArchiveIterator(fobj):
-            if record.rec_type == "response" and record.rec_headers.get_header("WARC-Target-URI") == uri:
+            if (
+                record.rec_type == "response"
+                and record.rec_headers.get_header("WARC-Target-URI") == uri
+            ):
                 return record
 
 
 class StdoutStatsCollector(MemoryStatsCollector):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.progress_bar = tqdm(desc="Downloading", unit="req",
-                            unit_scale=True, dynamic_ncols=True
-                            )
+        self.progress_bar = tqdm(
+            desc="Downloading", unit="req", unit_scale=True, dynamic_ncols=True
+        )
 
     def inc_value(self, key, count=1, start=0, spider=None):
         super().inc_value(key, count=count, start=start, spider=spider)
@@ -49,6 +52,7 @@ def get_headers_list(headers):
         for key, value in headers.items()
     ]
 
+
 def write_warc_request_response(writer, response):
     request = response.request
     path = request.url[
@@ -58,12 +62,10 @@ def write_warc_request_response(writer, response):
     http_headers = StatusAndHeaders(
         f"{request.method} {path} HTTP/1.1",
         get_headers_list(request.headers),
-        is_http_request=True
+        is_http_request=True,
     )
     writer.write_record(
-        writer.create_warc_record(
-            request.url, "request", http_headers=http_headers
-        )
+        writer.create_warc_record(request.url, "request", http_headers=http_headers)
     )
 
     # TODO: fix status
