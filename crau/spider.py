@@ -60,7 +60,6 @@ def extract_resources(response):
 class CrauSpider(scrapy.Spider):
 
     name = "crawler-spider"
-    # TODO: remove "#..." from URLs
 
     def __init__(self, warc_filename, urls, max_depth=1):
         super().__init__()
