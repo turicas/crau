@@ -4,7 +4,7 @@ import re
 from urllib.parse import urljoin, urlparse
 from collections import namedtuple
 
-import scrapy
+from scrapy import Request, Spider, signals
 from scrapy.utils.request import request_fingerprint
 from warcio.warcwriter import WARCWriter
 
@@ -59,9 +59,15 @@ def extract_resources(response):
                     )
 
 
-class CrauSpider(scrapy.Spider):
+class CrauSpider(Spider):
 
     name = "crawler-spider"
+
+    @classmethod
+    def from_crawler(cls, crawler, *args, **kwargs):
+        spider = super().from_crawler(crawler, *args, **kwargs)
+        crawler.signals.connect(spider.spider_closed, signal=signals.spider_closed)
+        return spider
 
     def __init__(self, warc_filename, urls, max_depth=1):
         super().__init__()
@@ -69,8 +75,14 @@ class CrauSpider(scrapy.Spider):
         self.warc_filename = warc_filename
         self.urls = urls
         self._request_history = set()
+        self.warc_fobj = None
+        self.warc_writer = None
 
-    def make_request(self, request_class=scrapy.Request, *args, **kwargs):
+    def spider_closed(self, spider):
+        if self.warc_fobj is not None:
+            self.warc_fobj.close()
+
+    def make_request(self, request_class=Request, *args, **kwargs):
         """Method to create requests and implements a custom dedup filter"""
 
         kwargs["dont_filter"] = kwargs.get("dont_filter", True)
@@ -111,7 +123,6 @@ class CrauSpider(scrapy.Spider):
         """
         self.warc_fobj = open(self.warc_filename, mode="wb")
         self.warc_writer = WARCWriter(self.warc_fobj, gzip=True)
-        # TODO: add self.warc_fobj.close() to spider finish
 
         for url in self.urls:
             yield self.make_request(
