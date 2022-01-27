@@ -73,6 +73,12 @@ class CrauSpider(Spider):
         "REACTOR_THREADPOOL_MAXSIZE": 40,
         "REDIRECT_ENABLED": False,
         "SCHEDULER_PRIORITY_QUEUE": "scrapy.pqueues.DownloaderAwarePriorityQueue",
+        "SPIDER_MIDDLEWARES_BASE": {
+            "scrapy.spidermiddlewares.httperror.HttpErrorMiddleware": 50,
+            "scrapy.spidermiddlewares.offsite.OffsiteMiddleware": 500,
+            "scrapy.spidermiddlewares.referer.RefererMiddleware": 700,
+            "scrapy.spidermiddlewares.urllength.UrlLengthMiddleware": 800,
+        },
     }
 
     @classmethod
