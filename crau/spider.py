@@ -175,22 +175,23 @@ class CrauSpider(Spider):
 
         for resource in extract_resources(response):
             if resource.type == "link":
-                for x in self.collect_link(
+                for request in self.collect_link(
                     main_url,
                     resource.name,
                     urljoin(main_url, resource.content),
                     current_depth if resource.name != "other" else next_depth,
                 ):
-                    if redirect_url is not None and redirect_url == x.url:
+                    if request is None or redirect_url is not None and redirect_url == request.url:
                         continue
-                    yield x
-                    # TODO: refactor
+                    yield request
+
             elif resource.type == "code":
-                for x in self.collect_code(
+                for request in self.collect_code(
                     main_url, resource.name, resource.content, current_depth
                 ):
-                    yield x
-                    # TODO: refactor
+                    if request is None:
+                        continue
+                    yield request
 
         if redirect_url is not None:
             # TODO: how to deal with redirect loops?
@@ -208,11 +209,12 @@ class CrauSpider(Spider):
     def parse_css(self, response):
         meta = response.request.meta
 
-        for x in self.collect_code(
+        for request in self.collect_code(
             response.request.url, "css", response.body, meta["depth"]
         ):
-            yield x
-            # TODO: refactor
+            if request is None:
+                continue
+            yield request
 
         logging.debug(f"Saving CSS {response.request.url}")
         self.write_warc(response)
@@ -220,11 +222,12 @@ class CrauSpider(Spider):
     def parse_js(self, response):
         meta = response.request.meta
 
-        for x in self.collect_code(
+        for request in self.collect_code(
             response.request.url, "js", response.body, meta["depth"]
         ):
-            yield x
-            # TODO: refactor
+            if request is None:
+                continue
+            yield request
 
         logging.debug(f"Saving JS {response.request.url}")
         self.write_warc(response)
