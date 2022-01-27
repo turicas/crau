@@ -1,3 +1,3 @@
-from .spider import CrauSpider
-from .cli import cli
-from .version import __version__
+from .cli import cli  # noqa
+from .spider import CrauSpider  # noqa
+from .version import __version__  # noqa
