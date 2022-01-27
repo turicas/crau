@@ -62,6 +62,17 @@ def extract_resources(response):
 class CrauSpider(Spider):
 
     name = "crawler-spider"
+    custom_settings = {
+        "CONCURRENT_REQUESTS": 256,
+        "CONCURRENT_REQUESTS_PER_DOMAIN": 16,
+        "DNSCACHE_ENABLED": True,
+        "DNSCACHE_SIZE": 500000,
+        "DNS_TIMEOUT": 5,
+        "DOWNLOAD_MAXSIZE": 5 * 1024 * 1024,
+        "DOWNLOAD_TIMEOUT": 5,
+        "REACTOR_THREADPOOL_MAXSIZE": 40,
+        "SCHEDULER_PRIORITY_QUEUE": "scrapy.pqueues.DownloaderAwarePriorityQueue",
+    }
 
     @classmethod
     def from_crawler(cls, crawler, *args, **kwargs):
@@ -99,6 +110,8 @@ class CrauSpider(Spider):
         # This `if` filters duplicated requests - we don't use scrapy's dedup
         # filter because it has a bug, which filters out requests in undesired
         # cases <https://github.com/scrapy/scrapy/issues/1225>.
+        # TODO: check if this dedup filter does not have the same problem
+        # scrapy have (the problem is related to canonicalize request url).
         request_hash = request_fingerprint(request)
         # TODO: may move this in-memory set to a temp file since the number of
         # requests can be pretty large.
