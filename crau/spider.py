@@ -103,6 +103,12 @@ class CrauSpider(scrapy.Spider):
         write_warc_request_response(self.warc_writer, response)
 
     def start_requests(self):
+        """Start requests with depth = 0
+
+        depth will be 0 for all primary URLs and all requisites (CSS, Images
+        and JS) of these URLs. For links found on these URLs, depth will be
+        incremented, and so on.
+        """
         self.warc_fobj = open(self.warc_filename, mode="wb")
         self.warc_writer = WARCWriter(self.warc_fobj, gzip=True)
         # TODO: add self.warc_fobj.close() to spider finish
@@ -123,11 +129,12 @@ class CrauSpider(scrapy.Spider):
             yield self.parse_media(response)
             return
 
-        logging.debug(f"Saving HTML {response.request.url}")
+        logging.debug(f"[{current_depth}] Saving HTML {response.request.url}")
         self.write_warc(response)
 
         for resource in extract_resources(response):
             if resource.type == "link":
+                logging.debug(f"[{current_depth}] FOUND LINK ON {response.url}: {resource}")
                 for x in self.collect_link(
                     main_url,
                     resource.name,
@@ -172,7 +179,7 @@ class CrauSpider(scrapy.Spider):
         self.write_warc(response)
 
     def collect_link(self, main_url, link_type, url, depth):
-        if depth >= self.max_depth:
+        if depth > self.max_depth:
             logging.debug(
                 f"[{depth}] IGNORING (depth exceeded) get link {link_type} {url}"
             )
