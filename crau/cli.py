@@ -115,8 +115,10 @@ def archive(
 
 
 @cli.command("play", help="Run a backend playing your archive")
+@click.option("-p", "--port", default=8000)
+@click.option("-b", "--bind", default="127.0.0.1")
 @click.argument("warc_filename")
-def play(warc_filename):
+def play(warc_filename, port, bind):
     filename = Path(warc_filename)
     if not filename.exists():
         click.echo(f"ERROR: filename {warc_filename} does not exist.", err=True)
@@ -130,6 +132,6 @@ def play(warc_filename):
     os.chdir(temp_dir)
     run_command(f'wb-manager init "{collection_name}"')
     run_command(f'wb-manager add "{collection_name}" "{full_filename}"')
-    run_command(f"wayback")
+    run_command(f"wayback -p {port} -b {bind}")
     shutil.rmtree(temp_dir)
     os.chdir(old_cwd)
