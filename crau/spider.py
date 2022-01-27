@@ -86,6 +86,7 @@ class CrauSpider(Spider):
         """Method to create requests and implements a custom dedup filter"""
 
         kwargs["dont_filter"] = kwargs.get("dont_filter", True)
+        kwargs["errback"] = kwargs.get("errback", self.parse_request_error)
 
         meta = kwargs.get("meta", {})
         meta["handle_httpstatus_all"] = meta.get("handle_httpstatus_all", True)
@@ -160,6 +161,10 @@ class CrauSpider(Spider):
                 ):
                     yield x
                     # TODO: refactor
+
+    def parse_request_error(self, failure):
+        pass
+        # TODO: should we do something with this failure?
 
     def parse_css(self, response):
         meta = response.request.meta
