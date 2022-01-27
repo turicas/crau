@@ -1,15 +1,13 @@
-import io
 import logging
 import re
-from urllib.parse import urljoin, urlparse
 from collections import namedtuple
+from urllib.parse import urljoin
 
 from scrapy import Request, Spider, signals
 from scrapy.utils.request import request_fingerprint
 from warcio.warcwriter import WARCWriter
 
 from .utils import write_warc_request_response
-
 
 Resource = namedtuple("Resource", ["name", "type", "content"])
 REGEXP_CSS_URL = re.compile(r"""url\(['"]?(.*?)['"]?\)""")
@@ -113,7 +111,7 @@ class CrauSpider(Spider):
 
         request = request_class(*args, **kwargs)
         if "#" in request.url:
-            request = request.replace(url=request.url[:request.url.find("#")])
+            request = request.replace(url=request.url[: request.url.find("#")])
 
         # This `if` filters duplicated requests - we don't use scrapy's dedup
         # filter because it has a bug, which filters out requests in undesired
@@ -159,7 +157,9 @@ class CrauSpider(Spider):
 
         content_type = response.headers.get("Content-Type", b"").decode("ascii")
         if content_type and content_type.split(";")[0].lower() != "text/html":
-            logging.debug(f"[{current_depth}] Content-Type not found for {main_url}, parsing as media")
+            logging.debug(
+                f"[{current_depth}] Content-Type not found for {main_url}, parsing as media"
+            )
             yield self.parse_media(response)
             return
 
@@ -169,8 +169,7 @@ class CrauSpider(Spider):
         redirect_url = None
         if 300 <= response.status <= 399 and "Location" in response.headers:
             redirect_url = urljoin(
-                response.request.url,
-                response.headers["Location"].decode("ascii")
+                response.request.url, response.headers["Location"].decode("ascii")
             )
 
         for resource in extract_resources(response):
@@ -181,7 +180,11 @@ class CrauSpider(Spider):
                     urljoin(main_url, resource.content),
                     current_depth if resource.name != "other" else next_depth,
                 ):
-                    if request is None or redirect_url is not None and redirect_url == request.url:
+                    if (
+                        request is None
+                        or redirect_url is not None
+                        and redirect_url == request.url
+                    ):
                         continue
                     yield request
 

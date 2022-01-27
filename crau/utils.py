@@ -2,11 +2,9 @@ import io
 from urllib.parse import urlparse
 
 from scrapy.statscollectors import MemoryStatsCollector
+from tqdm import tqdm
 from warcio.archiveiterator import ArchiveIterator
 from warcio.statusandheaders import StatusAndHeaders
-from warcio.warcwriter import WARCWriter
-from tqdm import tqdm
-
 
 # Status/messages taken from <https://en.wikipedia.org/wiki/List_of_HTTP_status_codes>
 HTTP_STATUS_CODES = {

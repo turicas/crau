@@ -1,6 +1,5 @@
 from setuptools import find_packages, setup
 
-
 setup(
     name="crau",
     description="Easy-to-use Web archiver",

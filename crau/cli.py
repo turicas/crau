@@ -1,7 +1,6 @@
-import logging
 import os
-import shutil
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,7 +11,7 @@ from scrapy.crawler import CrawlerProcess
 from scrapy.utils.conf import arglist_to_dict
 
 from .spider import CrauSpider
-from .utils import get_urls_from_file, get_warc_uris, get_warc_record
+from .utils import get_urls_from_file, get_warc_record, get_warc_uris
 from .version import __version__
 
 

@@ -1,6 +1,8 @@
 -r requirements.txt
 
+autoflake
 black
 ipython
+isort
 twine
 wheel
