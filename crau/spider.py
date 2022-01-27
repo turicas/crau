@@ -71,6 +71,7 @@ class CrauSpider(Spider):
         "DOWNLOAD_MAXSIZE": 5 * 1024 * 1024,
         "DOWNLOAD_TIMEOUT": 5,
         "REACTOR_THREADPOOL_MAXSIZE": 40,
+        "REDIRECT_ENABLED": False,
         "SCHEDULER_PRIORITY_QUEUE": "scrapy.pqueues.DownloaderAwarePriorityQueue",
     }
 
@@ -101,6 +102,7 @@ class CrauSpider(Spider):
 
         meta = kwargs.get("meta", {})
         meta["handle_httpstatus_all"] = meta.get("handle_httpstatus_all", True)
+        meta["dont_redirect"] = meta.get("dont_redirect", True)
         kwargs["meta"] = meta
 
         request = request_class(*args, **kwargs)
@@ -145,6 +147,7 @@ class CrauSpider(Spider):
 
     def parse(self, response):
         main_url = response.request.url
+        # TODO: what if response.request.url != response.url?
         current_depth = response.request.meta["depth"]
         next_depth = current_depth + 1
 
@@ -157,15 +160,23 @@ class CrauSpider(Spider):
         logging.debug(f"[{current_depth}] Saving HTML {response.request.url}")
         self.write_warc(response)
 
+        redirect_url = None
+        if 300 <= response.status <= 399 and "Location" in response.headers:
+            redirect_url = urljoin(
+                response.request.url,
+                response.headers["Location"].decode("ascii")
+            )
+
         for resource in extract_resources(response):
             if resource.type == "link":
-                logging.debug(f"[{current_depth}] FOUND LINK ON {response.url}: {resource}")
                 for x in self.collect_link(
                     main_url,
                     resource.name,
                     urljoin(main_url, resource.content),
                     current_depth if resource.name != "other" else next_depth,
                 ):
+                    if redirect_url is not None and redirect_url == x.url:
+                        continue
                     yield x
                     # TODO: refactor
             elif resource.type == "code":
@@ -174,6 +185,15 @@ class CrauSpider(Spider):
                 ):
                     yield x
                     # TODO: refactor
+
+        if redirect_url is not None:
+            # TODO: how to deal with redirect loops?
+            logging.debug(f"[{current_depth}] Redirecting to {redirect_url}")
+            yield self.make_request(
+                url=redirect_url,
+                meta={"depth": current_depth, "main_url": main_url},
+                callback=self.parse,
+            )
 
     def parse_request_error(self, failure):
         pass
