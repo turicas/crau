@@ -118,7 +118,8 @@ class CrauSpider(scrapy.Spider):
         next_depth = current_depth + 1
 
         content_type = response.headers.get("Content-Type", b"").decode("ascii")
-        if content_type.split(";")[0].lower() != "text/html":
+        if content_type and content_type.split(";")[0].lower() != "text/html":
+            logging.debug(f"[{current_depth}] Content-Type not found for {main_url}, parsing as media")
             yield self.parse_media(response)
             return
 
