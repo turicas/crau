@@ -85,7 +85,7 @@ class CrauSpider(Spider):
         crawler.signals.connect(spider.spider_closed, signal=signals.spider_closed)
         return spider
 
-    def __init__(self, warc_filename, urls, max_depth=1, same_domain=False):
+    def __init__(self, warc_filename, urls, max_depth=1, match_domains=None):
         super().__init__()
         self.max_depth = int(max_depth)
         self.warc_filename = warc_filename
@@ -93,7 +93,7 @@ class CrauSpider(Spider):
         self._request_history = set()
         self.warc_fobj = None
         self.warc_writer = None
-        self.same_domain = same_domain
+        self.match_domains = match_domains if match_domains else []
 
     def spider_closed(self, spider):
         if self.warc_fobj is not None:
@@ -146,7 +146,6 @@ class CrauSpider(Spider):
         self.warc_writer = WARCWriter(self.warc_fobj, gzip=True)
 
         for url in self.urls:
-            self.base_url = url
             yield self.make_request(
                 url=url, meta={"depth": 0, "main_url": url}, callback=self.parse
             )
@@ -184,14 +183,14 @@ class CrauSpider(Spider):
                     current_depth if resource.name != "other" else next_depth,
                 ):
                     is_href = self.is_href(absolute_url, resource.name)
-                    different_domain = not self.resource_same_domain(self.base_url, absolute_url)
+                    different_domain = not self.resource_match_domains(absolute_url, self.match_domains)
                     if (
                         request is None
                         or redirect_url is not None
                         and redirect_url == request.url
                     ):
                         continue
-                    elif self.same_domain and is_href and different_domain:
+                    elif self.match_domains and is_href and different_domain:
                         logging.info(f"Different domain. Skipping {absolute_url}.")
                         continue
                     yield request
@@ -247,12 +246,12 @@ class CrauSpider(Spider):
         logging.debug(f"Saving MEDIA {response.request.url}")
         self.write_warc(response)
 
-    def resource_same_domain(self, main_url, absolute_url):
+    def resource_match_domains(self, absolute_url, domains):
         try:
-            parsed_main_url = urlparse(main_url).netloc.replace("www.", "")
             parsed_absolute_url = urlparse(absolute_url).netloc.replace("www.", "")
-            return parsed_main_url in parsed_absolute_url
+            return any(d.replace("www.", "") in parsed_absolute_url for d in domains)
         except Exception:
+            logging.error(f"Error checking domain match with {absolute_url}")
             return True
 
     def is_href(self, absolute_url, link_type):

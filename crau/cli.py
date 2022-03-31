@@ -67,7 +67,7 @@ def extract_uri(warc_filename, uri, output):
 @click.option("--input-encoding", default="utf-8")
 @click.option("--cache", is_flag=True)
 @click.option("--max-depth", default=1)
-@click.option("--same-domain", is_flag=True, default=False)
+@click.option("--match-domains", multiple=True, default=[])
 @click.option("--log-level", required=False)
 @click.option("--user-agent", required=False)
 @click.option("--settings", "-s", multiple=True, default=[], callback=load_settings)
@@ -112,7 +112,7 @@ def archive(
         warc_filename=warc_filename,
         urls=urls,
         max_depth=max_depth,
-        same_domain=same_domain,
+        match_domains=match_domains,
     )
     process.start()
     # TODO: if there's an error, print it
