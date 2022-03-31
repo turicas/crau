@@ -171,22 +171,24 @@ class CrauSpider(Spider):
 
         for resource in extract_resources(response):
             if resource.type == "link":
+                # TODO: handle "//" URLs correctly
                 absolute_url = urljoin(main_url, resource.content)
-                for request in self.collect_link(
-                    main_url,
-                    resource.name,
-                    absolute_url,
-                    current_depth if resource.name != "other" else next_depth,
-                ):
-                    is_href = self.is_href(absolute_url, resource.name)
-                    different_domain = not self.resource_match_domains(absolute_url, self.match_domains)
+                depth = None
+                if resource.link_type == "dependency":
+                    depth = current_depth
+                elif resource.link_type == "anchor":
+                    depth = next_depth
+                for request in self.collect_link(main_url, resource.name, absolute_url, depth):
                     if (
                         request is None
-                        or redirect_url is not None
-                        and redirect_url == request.url
+                        or (redirect_url is not None and redirect_url == request.url)
                     ):
                         continue
-                    elif self.match_domains and is_href and different_domain:
+                    elif (
+                        self.match_domains
+                        and resource.link_type == "anchor"
+                        and not self.resource_match_domains(absolute_url, self.match_domains)
+                    ):
                         logging.info(f"Different domain. Skipping {absolute_url}.")
                         continue
                     yield request
@@ -249,16 +251,6 @@ class CrauSpider(Spider):
         except Exception:
             logging.error(f"Error checking domain match with {absolute_url}")
             return True
-
-    def is_href(self, absolute_url, link_type):
-        non_href_types = ("css", "js", "svg", "png", "jpeg", "jpg", "pdf")
-        non_href_links = ("media", "css", "js")
-        if any(absolute_url.endswith(t) for t in non_href_types) or link_type in non_href_links:
-            flag = False
-        else:
-            flag = True
-
-        return flag
 
     def collect_link(self, main_url, link_type, url, depth):
         if depth > self.max_depth:
