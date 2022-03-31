@@ -3,6 +3,7 @@
 autoflake
 black
 ipython
+pytest==7.1.1
 isort
 twine
 wheel

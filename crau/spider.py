@@ -7,7 +7,7 @@ from scrapy import Request, Spider, signals
 from scrapy.utils.request import request_fingerprint
 from warcio.warcwriter import WARCWriter
 
-from .utils import write_warc_request_response
+from .utils import resource_matches_base_url, write_warc_request_response
 
 Resource = namedtuple("Resource", ["name", "type", "link_type", "content"])
 REGEXP_CSS_URL = re.compile(r"""url\(['"]?(.*?)['"]?\)""")
@@ -81,7 +81,7 @@ class CrauSpider(Spider):
         crawler.signals.connect(spider.spider_closed, signal=signals.spider_closed)
         return spider
 
-    def __init__(self, warc_filename, urls, max_depth=1, match_domains=None):
+    def __init__(self, warc_filename, urls, max_depth=1, allowed=None):
         super().__init__()
         self.max_depth = int(max_depth)
         self.warc_filename = warc_filename
@@ -89,7 +89,7 @@ class CrauSpider(Spider):
         self._request_history = set()
         self.warc_fobj = None
         self.warc_writer = None
-        self.match_domains = match_domains if match_domains else []
+        self.allowed = allowed if allowed else []
 
     def spider_closed(self, spider):
         if self.warc_fobj is not None:
@@ -185,9 +185,9 @@ class CrauSpider(Spider):
                     ):
                         continue
                     elif (
-                        self.match_domains
+                        self.allowed
                         and resource.link_type == "anchor"
-                        and not self.resource_match_domains(absolute_url, self.match_domains)
+                        and not resource_matches_base_url(absolute_url, self.allowed)
                     ):
                         logging.info(f"Different domain. Skipping {absolute_url}.")
                         continue
@@ -243,14 +243,6 @@ class CrauSpider(Spider):
     def parse_media(self, response):
         logging.debug(f"Saving MEDIA {response.request.url}")
         self.write_warc(response)
-
-    def resource_match_domains(self, absolute_url, domains):
-        try:
-            parsed_absolute_url = urlparse(absolute_url).netloc.replace("www.", "")
-            return any(d.replace("www.", "") in parsed_absolute_url for d in domains)
-        except Exception:
-            logging.error(f"Error checking domain match with {absolute_url}")
-            return True
 
     def collect_link(self, main_url, link_type, url, depth):
         if depth > self.max_depth:

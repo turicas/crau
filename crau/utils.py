@@ -183,3 +183,18 @@ def write_warc_request_response(writer, response):
             http_headers=http_headers,
         )
     )
+
+
+def resource_matches_base_url(absolute_url, allowed):
+    clean_allowed = []
+    for allow in allowed:
+        if not allow.startswith("http"):
+            allow = f"http://{allow}"
+
+        clean_allowed.append(urlparse(allow.replace("www.", "")))
+
+    parsed_url = urlparse(absolute_url.replace("www.", ""))
+    return (
+        any(a.netloc == parsed_url.netloc and parsed_url.path.startswith(a.path) for a in clean_allowed)
+        or not allowed
+    )
