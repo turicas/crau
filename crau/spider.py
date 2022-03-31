@@ -9,52 +9,48 @@ from warcio.warcwriter import WARCWriter
 
 from .utils import write_warc_request_response
 
-Resource = namedtuple("Resource", ["name", "type", "content"])
+Resource = namedtuple("Resource", ["name", "type", "link_type", "content"])
 REGEXP_CSS_URL = re.compile(r"""url\(['"]?(.*?)['"]?\)""")
-# TODO: add all other "//link/@href"
-# TODO: handle "//" URLs correctly
-EXTRACTORS = {
-    "media": {
-        "link": (
-            "//img/@src",
-            "//audio/@src",
-            "//video/@src",
-            "//source/@src",
-            "//embed/@src",
-            "//object/@data",
-        )
-    },
-    "css": {
-        "link": ("//link[@rel = 'stylesheet']/@href",),
-        "code": ("//style/text()", "//*/@style"),
-    },
-    "js": {
-        "link": ("//script/@src",),
-        "code": (
-            "//script/text()",
-            # TODO: add inline JS (onload, onchange, onclick etc.)
-            # TODO: add "javascript:XXX" on //a/@href etc.
-        ),
-    },
-    "other": {
-        "link": (
-            "//iframe/@src",
-            "//a/@href",
-            "//area/@href",
-            "//link[not(@rel = 'stylesheet')]/@href",
-        )
-    },
-}
+
+Extractor = namedtuple("Extractor", ["name", "type", "link_type", "xpath"])
+EXTRACTORS = [
+    # Media (images, video etc.)
+    Extractor(name="media", type="link", link_type="dependency", xpath="//img/@src"),
+    Extractor(name="media", type="link", link_type="dependency", xpath="//audio/@src"),
+    Extractor(name="media", type="link", link_type="dependency", xpath="//video/@src"),
+    Extractor(name="media", type="link", link_type="dependency", xpath="//source/@src"),
+    Extractor(name="media", type="link", link_type="dependency", xpath="//embed/@src"),
+    Extractor(name="media", type="link", link_type="dependency", xpath="//object/@data"),
+
+    # CSS
+    Extractor(name="css", type="link", link_type="dependency", xpath="//link[@rel = 'stylesheet']/@href"),
+    Extractor(name="css", type="code", link_type="dependency", xpath="//style/text()"),
+    Extractor(name="css", type="code", link_type="dependency", xpath="//*/@style"),
+
+    # JavaScript
+    Extractor(name="js", type="link", link_type="dependency", xpath="//script/@src"),
+    Extractor(name="js", type="code", link_type="dependency", xpath="//script/text()"),
+    # TODO: add "javascript:XXX" on //a/@href etc.
+    # TODO: add inline JS (onload, onchange, onclick etc.)
+
+    # Internal/external links and iframes
+    Extractor(name="other", type="link", link_type="anchor", xpath="//iframe/@src"),
+    Extractor(name="other", type="link", link_type="anchor", xpath="//a/@href"),
+    Extractor(name="other", type="link", link_type="anchor", xpath="//area/@href"),
+    Extractor(name="other", type="link", link_type="anchor", xpath="//link[not(@rel = 'stylesheet')]/@href"),
+    # TODO: add all other "//link/@href"
+]
 
 
 def extract_resources(response):
-    for resource_name, resource_types in EXTRACTORS.items():
-        for resource_type, xpaths in resource_types.items():
-            for xpath in xpaths:
-                for content in response.xpath(xpath).extract():
-                    yield Resource(
-                        name=resource_name, type=resource_type, content=content
-                    )
+    for extractor in EXTRACTORS:
+        for content in response.xpath(extractor.xpath).extract():
+            yield Resource(
+                name=extractor.name,
+                type=extractor.type,
+                link_type=extractor.link_type,
+                content=content,
+            )
 
 
 class CrauSpider(Spider):
