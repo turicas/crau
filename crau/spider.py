@@ -81,7 +81,7 @@ class CrauSpider(Spider):
         crawler.signals.connect(spider.spider_closed, signal=signals.spider_closed)
         return spider
 
-    def __init__(self, warc_filename, urls, max_depth=1, allowed=None):
+    def __init__(self, warc_filename, urls, max_depth=1, allowed_uris=None):
         super().__init__()
         self.max_depth = int(max_depth)
         self.warc_filename = warc_filename
@@ -89,7 +89,7 @@ class CrauSpider(Spider):
         self._request_history = set()
         self.warc_fobj = None
         self.warc_writer = None
-        self.allowed = allowed if allowed else []
+        self.allowed_uris = allowed_uris if allowed_uris else []
 
     def spider_closed(self, spider):
         if self.warc_fobj is not None:
@@ -185,9 +185,9 @@ class CrauSpider(Spider):
                     ):
                         continue
                     elif (
-                        self.allowed
+                        self.allowed_uris
                         and resource.link_type == "anchor"
-                        and not resource_matches_base_url(absolute_url, self.allowed)
+                        and not resource_matches_base_url(absolute_url, self.allowed_uris)
                     ):
                         logging.info(f"Different domain. Skipping {absolute_url}.")
                         continue
