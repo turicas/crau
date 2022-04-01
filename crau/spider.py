@@ -7,54 +7,59 @@ from scrapy import Request, Spider, signals
 from scrapy.utils.request import request_fingerprint
 from warcio.warcwriter import WARCWriter
 
-from .utils import write_warc_request_response
+from .utils import resource_matches_base_url, write_warc_request_response
 
-Resource = namedtuple("Resource", ["name", "type", "content"])
+Resource = namedtuple("Resource", ["name", "type", "link_type", "content"])
 REGEXP_CSS_URL = re.compile(r"""url\(['"]?(.*?)['"]?\)""")
-# TODO: add all other "//link/@href"
-# TODO: handle "//" URLs correctly
-EXTRACTORS = {
-    "media": {
-        "link": (
-            "//img/@src",
-            "//audio/@src",
-            "//video/@src",
-            "//source/@src",
-            "//embed/@src",
-            "//object/@data",
-        )
-    },
-    "css": {
-        "link": ("//link[@rel = 'stylesheet']/@href",),
-        "code": ("//style/text()", "//*/@style"),
-    },
-    "js": {
-        "link": ("//script/@src",),
-        "code": (
-            "//script/text()",
-            # TODO: add inline JS (onload, onchange, onclick etc.)
-            # TODO: add "javascript:XXX" on //a/@href etc.
-        ),
-    },
-    "other": {
-        "link": (
-            "//iframe/@src",
-            "//a/@href",
-            "//area/@href",
-            "//link[not(@rel = 'stylesheet')]/@href",
-        )
-    },
-}
+
+Extractor = namedtuple("Extractor", ["name", "type", "link_type", "xpath"])
+EXTRACTORS = [
+    # Media (images, video etc.)
+    Extractor(name="media", type="link", link_type="dependency", xpath="//img/@src"),
+    Extractor(name="media", type="link", link_type="dependency", xpath="//audio/@src"),
+    Extractor(name="media", type="link", link_type="dependency", xpath="//video/@src"),
+    Extractor(name="media", type="link", link_type="dependency", xpath="//source/@src"),
+    Extractor(name="media", type="link", link_type="dependency", xpath="//embed/@src"),
+    Extractor(
+        name="media", type="link", link_type="dependency", xpath="//object/@data"
+    ),
+    # CSS
+    Extractor(
+        name="css",
+        type="link",
+        link_type="dependency",
+        xpath="//link[@rel = 'stylesheet']/@href",
+    ),
+    Extractor(name="css", type="code", link_type="dependency", xpath="//style/text()"),
+    Extractor(name="css", type="code", link_type="dependency", xpath="//*/@style"),
+    # JavaScript
+    Extractor(name="js", type="link", link_type="dependency", xpath="//script/@src"),
+    Extractor(name="js", type="code", link_type="dependency", xpath="//script/text()"),
+    # TODO: add "javascript:XXX" on //a/@href etc.
+    # TODO: add inline JS (onload, onchange, onclick etc.)
+    # Internal/external links and iframes
+    Extractor(name="other", type="link", link_type="anchor", xpath="//iframe/@src"),
+    Extractor(name="other", type="link", link_type="anchor", xpath="//a/@href"),
+    Extractor(name="other", type="link", link_type="anchor", xpath="//area/@href"),
+    Extractor(
+        name="other",
+        type="link",
+        link_type="anchor",
+        xpath="//link[not(@rel = 'stylesheet')]/@href",
+    ),
+    # TODO: add all other "//link/@href"
+]
 
 
 def extract_resources(response):
-    for resource_name, resource_types in EXTRACTORS.items():
-        for resource_type, xpaths in resource_types.items():
-            for xpath in xpaths:
-                for content in response.xpath(xpath).extract():
-                    yield Resource(
-                        name=resource_name, type=resource_type, content=content
-                    )
+    for extractor in EXTRACTORS:
+        for content in response.xpath(extractor.xpath).extract():
+            yield Resource(
+                name=extractor.name,
+                type=extractor.type,
+                link_type=extractor.link_type,
+                content=content,
+            )
 
 
 class CrauSpider(Spider):
@@ -85,7 +90,7 @@ class CrauSpider(Spider):
         crawler.signals.connect(spider.spider_closed, signal=signals.spider_closed)
         return spider
 
-    def __init__(self, warc_filename, urls, max_depth=1):
+    def __init__(self, warc_filename, urls, max_depth=1, allowed_uris=None):
         super().__init__()
         self.max_depth = int(max_depth)
         self.warc_filename = warc_filename
@@ -93,6 +98,7 @@ class CrauSpider(Spider):
         self._request_history = set()
         self.warc_fobj = None
         self.warc_writer = None
+        self.allowed_uris = allowed_uris if allowed_uris else []
 
     def spider_closed(self, spider):
         if self.warc_fobj is not None:
@@ -155,7 +161,9 @@ class CrauSpider(Spider):
         current_depth = response.request.meta["depth"]
         next_depth = current_depth + 1
 
-        content_type = response.headers.get("Content-Type", b"").decode("ascii")
+        content_type = response.headers.get("Content-Type", b"").decode(
+            "ascii"
+        )  # TODO: decode properly
         if content_type and content_type.split(";")[0].lower() != "text/html":
             logging.debug(
                 f"[{current_depth}] Content-Type not found for {main_url}, parsing as media"
@@ -169,22 +177,34 @@ class CrauSpider(Spider):
         redirect_url = None
         if 300 <= response.status <= 399 and "Location" in response.headers:
             redirect_url = urljoin(
-                response.request.url, response.headers["Location"].decode("ascii")
+                response.request.url,
+                response.headers["Location"].decode("ascii"),  # TODO: decode properly
             )
 
         for resource in extract_resources(response):
             if resource.type == "link":
+                # TODO: handle "//" URLs correctly
+                absolute_url = urljoin(main_url, resource.content)
+                depth = None
+                if resource.link_type == "dependency":
+                    depth = current_depth
+                elif resource.link_type == "anchor":
+                    depth = next_depth
                 for request in self.collect_link(
-                    main_url,
-                    resource.name,
-                    urljoin(main_url, resource.content),
-                    current_depth if resource.name != "other" else next_depth,
+                    main_url, resource.name, absolute_url, depth
                 ):
-                    if (
-                        request is None
-                        or redirect_url is not None
-                        and redirect_url == request.url
+                    if request is None or (
+                        redirect_url is not None and redirect_url == request.url
                     ):
+                        continue
+                    elif (
+                        self.allowed_uris
+                        and resource.link_type == "anchor"
+                        and not resource_matches_base_url(
+                            absolute_url, self.allowed_uris
+                        )
+                    ):
+                        logging.info(f"Different domain. Skipping {absolute_url}.")
                         continue
                     yield request
 

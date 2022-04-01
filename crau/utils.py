@@ -111,21 +111,37 @@ def get_urls_from_file(filename, encoding="utf-8"):
             yield line.strip()
 
 
-def get_warc_uris(filename, record_type):
-    with open(filename, mode="rb") as fobj:
-        for record in ArchiveIterator(fobj):
-            if record_type is None or record.rec_type == record_type:
-                yield record.rec_headers.get_header("WARC-Target-URI")
+class WarcReader:
+    def __init__(self, filename):
+        self.filename = filename
+        self.__fobj = None
 
+    def __iter__(self):
+        self.__fobj = open(self.filename, mode="rb")
+        self.__iterator = ArchiveIterator(self.__fobj)
+        return self
 
-def get_warc_record(filename, uri):
-    with open(filename, mode="rb") as fobj:
-        for record in ArchiveIterator(fobj):
+    def __next__(self):
+        try:
+            item = next(self.__iterator)
+        except StopIteration:
+            self.__fobj.close()
+            self.__iterator = self.__fobj = None
+            raise
+        else:
+            return item
+
+    def get_response(self, uri):
+        for record in self:
             if (
                 record.rec_type == "response"
                 and record.rec_headers.get_header("WARC-Target-URI") == uri
             ):
                 return record
+
+    def __del__(self):
+        if self.__fobj is not None:
+            self.__fobj.close()
 
 
 class StdoutStatsCollector(MemoryStatsCollector):
@@ -144,6 +160,7 @@ class StdoutStatsCollector(MemoryStatsCollector):
 
 def get_headers_list(headers):
     # TODO: fix if list has more than one value
+    # TODO: decode properly
     return [
         (key.decode("ascii"), value[0].decode("ascii"))
         for key, value in headers.items()
@@ -170,8 +187,7 @@ def write_warc_request_response(writer, response):
     http_headers = StatusAndHeaders(
         f"{response.status} {status_title}",
         get_headers_list(response.headers),
-        protocol="HTTP/1.1",
-        # TODO: fix HTTP version
+        protocol=response.protocol,
         is_http_request=False,
     )
     # TODO: what about redirects?
@@ -182,4 +198,22 @@ def write_warc_request_response(writer, response):
             payload=io.BytesIO(response.body),
             http_headers=http_headers,
         )
+    )
+
+
+def resource_matches_base_url(absolute_url, allowed):
+    clean_allowed = []
+    for allow in allowed:
+        if not allow.startswith("http"):
+            allow = f"http://{allow}"
+
+        clean_allowed.append(urlparse(allow.replace("www.", "")))
+
+    parsed_url = urlparse(absolute_url.replace("www.", ""))
+    return (
+        any(
+            a.netloc == parsed_url.netloc and parsed_url.path.startswith(a.path)
+            for a in clean_allowed
+        )
+        or not allowed
     )
