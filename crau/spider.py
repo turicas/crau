@@ -1,7 +1,7 @@
 import logging
 import re
 from collections import namedtuple
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 from scrapy import Request, Spider, signals
 from scrapy.utils.request import request_fingerprint
@@ -20,24 +20,33 @@ EXTRACTORS = [
     Extractor(name="media", type="link", link_type="dependency", xpath="//video/@src"),
     Extractor(name="media", type="link", link_type="dependency", xpath="//source/@src"),
     Extractor(name="media", type="link", link_type="dependency", xpath="//embed/@src"),
-    Extractor(name="media", type="link", link_type="dependency", xpath="//object/@data"),
-
+    Extractor(
+        name="media", type="link", link_type="dependency", xpath="//object/@data"
+    ),
     # CSS
-    Extractor(name="css", type="link", link_type="dependency", xpath="//link[@rel = 'stylesheet']/@href"),
+    Extractor(
+        name="css",
+        type="link",
+        link_type="dependency",
+        xpath="//link[@rel = 'stylesheet']/@href",
+    ),
     Extractor(name="css", type="code", link_type="dependency", xpath="//style/text()"),
     Extractor(name="css", type="code", link_type="dependency", xpath="//*/@style"),
-
     # JavaScript
     Extractor(name="js", type="link", link_type="dependency", xpath="//script/@src"),
     Extractor(name="js", type="code", link_type="dependency", xpath="//script/text()"),
     # TODO: add "javascript:XXX" on //a/@href etc.
     # TODO: add inline JS (onload, onchange, onclick etc.)
-
     # Internal/external links and iframes
     Extractor(name="other", type="link", link_type="anchor", xpath="//iframe/@src"),
     Extractor(name="other", type="link", link_type="anchor", xpath="//a/@href"),
     Extractor(name="other", type="link", link_type="anchor", xpath="//area/@href"),
-    Extractor(name="other", type="link", link_type="anchor", xpath="//link[not(@rel = 'stylesheet')]/@href"),
+    Extractor(
+        name="other",
+        type="link",
+        link_type="anchor",
+        xpath="//link[not(@rel = 'stylesheet')]/@href",
+    ),
     # TODO: add all other "//link/@href"
 ]
 
@@ -152,7 +161,9 @@ class CrauSpider(Spider):
         current_depth = response.request.meta["depth"]
         next_depth = current_depth + 1
 
-        content_type = response.headers.get("Content-Type", b"").decode("ascii")  # TODO: decode properly
+        content_type = response.headers.get("Content-Type", b"").decode(
+            "ascii"
+        )  # TODO: decode properly
         if content_type and content_type.split(";")[0].lower() != "text/html":
             logging.debug(
                 f"[{current_depth}] Content-Type not found for {main_url}, parsing as media"
@@ -167,7 +178,7 @@ class CrauSpider(Spider):
         if 300 <= response.status <= 399 and "Location" in response.headers:
             redirect_url = urljoin(
                 response.request.url,
-                response.headers["Location"].decode("ascii")  # TODO: decode properly
+                response.headers["Location"].decode("ascii"),  # TODO: decode properly
             )
 
         for resource in extract_resources(response):
@@ -179,16 +190,19 @@ class CrauSpider(Spider):
                     depth = current_depth
                 elif resource.link_type == "anchor":
                     depth = next_depth
-                for request in self.collect_link(main_url, resource.name, absolute_url, depth):
-                    if (
-                        request is None
-                        or (redirect_url is not None and redirect_url == request.url)
+                for request in self.collect_link(
+                    main_url, resource.name, absolute_url, depth
+                ):
+                    if request is None or (
+                        redirect_url is not None and redirect_url == request.url
                     ):
                         continue
                     elif (
                         self.allowed_uris
                         and resource.link_type == "anchor"
-                        and not resource_matches_base_url(absolute_url, self.allowed_uris)
+                        and not resource_matches_base_url(
+                            absolute_url, self.allowed_uris
+                        )
                     ):
                         logging.info(f"Different domain. Skipping {absolute_url}.")
                         continue

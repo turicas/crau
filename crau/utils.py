@@ -211,6 +211,9 @@ def resource_matches_base_url(absolute_url, allowed):
 
     parsed_url = urlparse(absolute_url.replace("www.", ""))
     return (
-        any(a.netloc == parsed_url.netloc and parsed_url.path.startswith(a.path) for a in clean_allowed)
+        any(
+            a.netloc == parsed_url.netloc and parsed_url.path.startswith(a.path)
+            for a in clean_allowed
+        )
         or not allowed
     )
