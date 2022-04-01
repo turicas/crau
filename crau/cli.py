@@ -11,7 +11,7 @@ from scrapy.crawler import CrawlerProcess
 from scrapy.utils.conf import arglist_to_dict
 
 from .spider import CrauSpider
-from .utils import get_urls_from_file, get_warc_record, get_warc_uris
+from .utils import WarcReader, get_urls_from_file
 from .version import __version__
 
 
@@ -32,33 +32,40 @@ def load_settings(ctx, param, value):
 
 
 @click.group()
-@click.version_option(version=__version__)
+@click.version_option(version=__version__, prog_name="crau")
 def cli():
-    # TODO: set prog_name to "crau"
     pass
 
 
 @cli.command("list", help="List URIs of response records stored in a WARC file")
 @click.argument("warc_filename")
 def list_uris(warc_filename):
-    for uri in get_warc_uris(warc_filename, record_type="response"):
-        click.echo(uri)
+    warc = WarcReader(warc_filename)
+    for record in warc:
+        if record.rec_type == "response":
+            click.echo(record.rec_headers.get_header("WARC-Target-URI"))
 
 
 @cli.command("extract", help="Extract URL content from archive")
+@click.option("--chunk-size", default=512 * 1024)
 @click.argument("warc_filename")
 @click.argument("uri")
 @click.argument("output")
-def extract_uri(warc_filename, uri, output):
-    record = get_warc_record(warc_filename, uri)
-    content = record.content_stream().read()
+def extract_uri(chunk_size, warc_filename, uri, output):
+    warc = WarcReader(warc_filename)
+    stream = warc.get_response(uri).content_stream()
 
-    # TODO: write it lazily
     if output == "-":
-        sys.stdout.buffer.write(content)
+        data = stream.read(chunk_size)
+        while data != b"":
+            sys.stdout.buffer.write(data)
+            data = stream.read(chunk_size)
     else:
         with open(output, mode="wb") as fobj:
-            fobj.write(content)
+            data = stream.read(chunk_size)
+            while data != b"":
+                fobj.write(data)
+                data = stream.read(chunk_size)
 
 
 @cli.command("archive", help="Archive a list of URLs to a WARC file")
