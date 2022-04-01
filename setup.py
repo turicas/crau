@@ -3,7 +3,7 @@ from setuptools import find_packages, setup
 setup(
     name="crau",
     description="Easy-to-use Web archiver",
-    version="0.1.1dev0",
+    version="0.2.0",
     author="Álvaro Justen",
     author_email="alvarojusten@gmail.com",
     url="https://github.com/turicas/crau/",
