@@ -160,6 +160,7 @@ class StdoutStatsCollector(MemoryStatsCollector):
 
 def get_headers_list(headers):
     # TODO: fix if list has more than one value
+    # TODO: decode properly
     return [
         (key.decode("ascii"), value[0].decode("ascii"))
         for key, value in headers.items()
@@ -186,8 +187,7 @@ def write_warc_request_response(writer, response):
     http_headers = StatusAndHeaders(
         f"{response.status} {status_title}",
         get_headers_list(response.headers),
-        protocol="HTTP/1.1",
-        # TODO: fix HTTP version
+        protocol=response.protocol,
         is_http_request=False,
     )
     # TODO: what about redirects?

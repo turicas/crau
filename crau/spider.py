@@ -152,7 +152,7 @@ class CrauSpider(Spider):
         current_depth = response.request.meta["depth"]
         next_depth = current_depth + 1
 
-        content_type = response.headers.get("Content-Type", b"").decode("ascii")
+        content_type = response.headers.get("Content-Type", b"").decode("ascii")  # TODO: decode properly
         if content_type and content_type.split(";")[0].lower() != "text/html":
             logging.debug(
                 f"[{current_depth}] Content-Type not found for {main_url}, parsing as media"
@@ -166,7 +166,8 @@ class CrauSpider(Spider):
         redirect_url = None
         if 300 <= response.status <= 399 and "Location" in response.headers:
             redirect_url = urljoin(
-                response.request.url, response.headers["Location"].decode("ascii")
+                response.request.url,
+                response.headers["Location"].decode("ascii")  # TODO: decode properly
             )
 
         for resource in extract_resources(response):
