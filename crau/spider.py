@@ -38,6 +38,8 @@ EXTRACTORS = [
     # TODO: add "javascript:XXX" on //a/@href etc.
     # TODO: add inline JS (onload, onchange, onclick etc.)
     # Internal/external links and iframes
+    # TODO: iframe sources must be considered as if they were the same as the
+    # current page being archived (same depth, get all dependencies etc.).
     Extractor(name="other", type="link", link_type="anchor", xpath="//iframe/@src"),
     Extractor(name="other", type="link", link_type="anchor", xpath="//a/@href"),
     Extractor(name="other", type="link", link_type="anchor", xpath="//area/@href"),
