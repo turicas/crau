@@ -49,6 +49,8 @@ EXTRACTORS = [
         link_type="anchor",
         xpath="//link[not(@rel = 'stylesheet')]/@href",
     ),
+    # TODO: link rel=icon should be considered a dependency (what about other
+    # link rel=xxx?)
     # TODO: add all other "//link/@href"
 ]
 
