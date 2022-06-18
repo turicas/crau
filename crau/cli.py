@@ -116,17 +116,13 @@ def archive(
     if user_agent:
         settings["USER_AGENT"] = user_agent
 
-    process = CrawlerProcess(settings=settings)
-
     if autothrottle:
-        throttle_settings = {
+        settings.update({
             "AUTOTHROTTLE_ENABLED": True,
             "AUTOTHROTTLE_DEBUG": True,
-        }
-        crau_spider_settings = CrauSpider.custom_settings.copy()
-        crau_spider_settings.update(throttle_settings)
-        CrauSpider.custom_settings = crau_spider_settings
+        })
 
+    process = CrawlerProcess(settings=settings)
     process.crawl(
         CrauSpider,
         warc_filename=warc_filename,
