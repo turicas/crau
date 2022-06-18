@@ -117,10 +117,12 @@ def archive(
         settings["USER_AGENT"] = user_agent
 
     if autothrottle:
-        settings.update({
-            "AUTOTHROTTLE_ENABLED": True,
-            "AUTOTHROTTLE_DEBUG": True,
-        })
+        settings.update(
+            {
+                "AUTOTHROTTLE_ENABLED": True,
+                "AUTOTHROTTLE_DEBUG": True,
+            }
+        )
 
     process = CrawlerProcess(settings=settings)
     process.crawl(
