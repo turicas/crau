@@ -75,6 +75,7 @@ def extract_uri(chunk_size, warc_filename, uri, output):
 @click.option("--cache", is_flag=True)
 @click.option("--max-depth", default=1)
 @click.option("--allowed-uris", multiple=True, default=[])
+@click.option("--autothrottle", is_flag=True)
 @click.option("--log-level", required=False)
 @click.option("--user-agent", required=False)
 @click.option("--settings", "-s", multiple=True, default=[], callback=load_settings)
@@ -86,6 +87,7 @@ def archive(
     cache,
     max_depth,
     allowed_uris,
+    autothrottle,
     log_level,
     settings,
     user_agent,
@@ -113,6 +115,12 @@ def archive(
 
     if user_agent:
         settings["USER_AGENT"] = user_agent
+
+    if autothrottle:
+        settings.update({
+            "AUTOTHROTTLE_ENABLED": True,
+            "AUTOTHROTTLE_DEBUG": True,
+        })
 
     process = CrawlerProcess(settings=settings)
     process.crawl(
