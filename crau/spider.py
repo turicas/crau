@@ -76,7 +76,7 @@ class CrauSpider(Spider):
         "DNSCACHE_SIZE": 500000,
         "DNS_TIMEOUT": 5,
         "DOWNLOAD_MAXSIZE": 5 * 1024 * 1024,
-        "DOWNLOAD_TIMEOUT": 5,
+        "DOWNLOAD_TIMEOUT": 15,
         "REACTOR_THREADPOOL_MAXSIZE": 40,
         "REDIRECT_ENABLED": False,
         "SCHEDULER_PRIORITY_QUEUE": "scrapy.pqueues.DownloaderAwarePriorityQueue",
