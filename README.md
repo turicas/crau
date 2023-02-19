@@ -53,6 +53,35 @@ Run a server on [localhost:8080](http://localhost:8080) to play your archive:
 crau play myarchive.warc.gz
 ```
 
+### Packing downloaded files into a WARC
+
+If you've mirrored a website using `wget -r`, `httrack` or a similiar tool in
+which you have the files in your file system, you can use `crau` to create a
+WARC file based on this. Run:
+
+```bash
+crau pack [--inner-directory=path] <start-url> <path-or-archive> <warc-filename>
+```
+
+Where:
+
+- `start-url`: base URL you've downloaded (this will be joined with the
+  actual file names to create the complete URL).
+- `path-or-archive`: path where the files are located. Can also be a
+  `.tar.gz`, `.tar.bz2`, `.tar.xz` or `.zip` archive. `crau` will retrieve all
+  files recursively.
+- `warc-filename`: file to be created.
+- `--inner-directory`: used when a TAR/ZIP archive is passed to filter which
+  directory inside the archive will be used to retrieve files. Example: you
+  have an archive with a `backup/` directory on the root and a
+  `www.example.com/` inside of it, so the files are actually inside
+  `backup/www.example.com/` - just pass
+  `--inner-directory=backup/www.example.com/` and only the files inside this
+  path will be considered (in this example, the file
+  `backup/www.example.com/contact.html` will be archived as
+  `<start-url>/contact.html`).
+
+
 ## Why not X?
 
 There are other archiving tools, of course. The motivation to start this
