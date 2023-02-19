@@ -20,7 +20,7 @@ def dir_archive_files(file_path):
         stat = filename.stat()
         is_dir = filename.is_dir()
         yield FileInfo(
-            path=filename,
+            path=filename.relative_to(file_path),
             created_at=datetime.datetime.fromtimestamp(stat.st_ctime),
             size=stat.st_size,
             is_dir=is_dir,
