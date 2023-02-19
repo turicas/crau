@@ -1,3 +1,4 @@
+import datetime
 import mimetypes
 import os
 import shlex
@@ -5,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from urllib.parse import quote, urljoin, urlparse
 
@@ -171,6 +173,7 @@ def play(warc_filename, port, bind):
 @click.argument("warc_filename")
 @click.option("--inner-directory")
 def pack(start_url, path_or_archive, warc_filename, inner_directory=None):
+    # TODO: move the packing code to another module
     if not start_url.endswith("/"):
         start_url = start_url + "/"
     path_or_archive = Path(path_or_archive)
@@ -179,6 +182,8 @@ def pack(start_url, path_or_archive, warc_filename, inner_directory=None):
         warc_filename.parent.mkdir(parents=True)
     inner_directory = Path(inner_directory) if inner_directory is not None else None
 
+    offset = time.timezone if (time.localtime().tm_isdst == 0) else time.altzone
+    tz = datetime.timezone(offset=-datetime.timedelta(seconds=offset))
     with warc_filename.open(mode="wb") as warc_fobj:
         writer = WARCWriter(warc_fobj, gzip=warc_filename.suffixes[-1].lower() == ".gz")
         for file_info in tqdm(
@@ -186,6 +191,11 @@ def pack(start_url, path_or_archive, warc_filename, inner_directory=None):
         ):
             if file_info.is_dir:
                 continue
+            warc_headers_dict = {
+                "WARC-Date": file_info.created_at.replace(tzinfo=tz).strftime(
+                    "%Y-%m-%dT%H:%M:%S%z"
+                ),
+            }
             url = urljoin(start_url, str(file_info.path))
             path = url[url.find("/", len(urlparse(url).scheme) + 3) :]
             url = url[: len(url) - len(path)] + quote(path)
@@ -193,7 +203,12 @@ def pack(start_url, path_or_archive, warc_filename, inner_directory=None):
                 f"GET {quote(path)} HTTP/1.1", [], is_http_request=True
             )
             writer.write_record(
-                writer.create_warc_record(url, "request", http_headers=http_headers)
+                writer.create_warc_record(
+                    url,
+                    "request",
+                    http_headers=http_headers,
+                    warc_headers_dict=warc_headers_dict,
+                )
             )
 
             status_code = 200
@@ -210,6 +225,10 @@ def pack(start_url, path_or_archive, warc_filename, inner_directory=None):
             )
             writer.write_record(
                 writer.create_warc_record(
-                    url, "response", payload=file_info.fobj, http_headers=http_headers
+                    url,
+                    "response",
+                    payload=file_info.fobj,
+                    http_headers=http_headers,
+                    warc_headers_dict=warc_headers_dict,
                 )
             )
