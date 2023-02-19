@@ -21,7 +21,7 @@ def dir_archive_files(file_path):
         is_dir = filename.is_dir()
         yield FileInfo(
             path=filename.relative_to(file_path),
-            created_at=datetime.datetime.fromtimestamp(stat.st_ctime),
+            created_at=datetime.datetime.fromtimestamp(stat.st_mtime),
             size=stat.st_size,
             is_dir=is_dir,
             fobj=filename.open(mode="rb") if not is_dir else None,
