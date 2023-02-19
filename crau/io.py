@@ -18,12 +18,13 @@ class FileInfo:
 def dir_archive_files(file_path):
     for filename in file_path.glob("**/*"):
         stat = filename.stat()
+        is_dir = filename.is_dir()
         yield FileInfo(
             path=filename,
             created_at=datetime.datetime.fromtimestamp(stat.st_ctime),
             size=stat.st_size,
-            is_dir=filename.is_dir(),
-            fobj=filename.open(),
+            is_dir=is_dir,
+            fobj=filename.open(mode="rb") if not is_dir else None,
         )
 
 
@@ -35,12 +36,13 @@ def tar_archive_files(archive, inner_directory=None):
                 filename = filename.relative_to(inner_directory)
             except ValueError:  # `filename` is outside `inner_directory`, skip
                 continue
+        is_dir = member.isdir()
         yield FileInfo(
             path=filename,
             created_at=datetime.datetime.fromtimestamp(member.mtime),
             size=member.size,
-            is_dir=member.isdir(),
-            fobj=archive.extractfile(member),
+            is_dir=is_dir,
+            fobj=archive.extractfile(member) if not is_dir else None,
         )
 
 
@@ -52,12 +54,13 @@ def zip_archive_files(archive, inner_directory=None):
                 filename = filename.relative_to(inner_directory)
             except ValueError:  # `filename` is outside `inner_directory`, skip
                 continue
+        is_dir = fileinfo.is_dir()
         yield FileInfo(
             path=filename,
             created_at=datetime.datetime(*fileinfo.date_time),
             size=fileinfo.file_size,
-            is_dir=fileinfo.is_dir(),
-            fobj=archive.open(fileinfo.filename),
+            is_dir=is_dir,
+            fobj=archive.open(fileinfo.filename) if not is_dir else None,
         )
 
 
