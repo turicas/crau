@@ -8,5 +8,7 @@ try:
 except ImportError:
     pass
 
+from .crawler import Crawler, Request, Response, Spider  # noqa
 from .version import __version__  # noqa
+
 
