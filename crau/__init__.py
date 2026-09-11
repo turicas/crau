@@ -1,14 +1,13 @@
-try:
-    from .cli import cli  # noqa
-except ImportError:
-    pass
+from crau.cli import cli, main
+from crau.crawler import Crawler, Request, Response, Spider
+from crau.version import __version__
 
-try:
-    from .spider import CrauSpider  # noqa
-except ImportError:
-    pass
-
-from .crawler import Crawler, Request, Response, Spider  # noqa
-from .version import __version__  # noqa
-
-
+__all__ = [
+    "Crawler",
+    "Request",
+    "Response",
+    "Spider",
+    "cli",
+    "main",
+    "__version__",
+]

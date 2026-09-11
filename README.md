@@ -101,8 +101,8 @@ tools in
 ### Why not [Wpull](https://wpull.readthedocs.io/en/master/)?
 
 - Lots of options make the task of archiving difficult;
-- Easiest to extend than wget, but still difficult comparing to crau (since
-  crau uses [scrapy](https://scrapy.org/)).
+- Wpull is largely unmaintained and difficult to extend. crau provides a modern,
+  extensible async Python engine with pluggable fetchers (raw HTTP, Lightpanda, CDP).
 
 ### Why not [crawl]()?
 
