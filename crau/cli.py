@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import argparse
 import datetime
 import mimetypes
 import os
@@ -8,186 +11,362 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Sequence
 from urllib.parse import quote, urljoin, urlparse
 
-import click
-from scrapy.crawler import CrawlerProcess
-from scrapy.utils.conf import arglist_to_dict
 from tqdm import tqdm
 from warcio.statusandheaders import StatusAndHeaders
 from warcio.warcwriter import WARCWriter
 
-from .io import archive_files
-from .spider import CrauSpider
-from .utils import HTTP_STATUS_CODES, WarcReader, get_urls_from_file
-from .version import __version__
+from crau.cache.sqlite import SqliteCacheBackend
+from crau.cache.warc import WarcCacheBackend
+from crau.crawler import Crawler
+from crau.io import archive_files
+from crau.pipeline import ItemPipeline
+from crau.utils import HTTP_STATUS_CODES, WarcReader, get_urls_from_file
+from crau.version import __version__
 
 
-def run_command(command):
-    print(f"*** Running command: {command}")
+def run_command(command: str) -> int:
+    sys.stderr.write(f"*** Running command: {command}\n")
     return subprocess.call(shlex.split(command))
 
 
-def load_settings(ctx, param, value):
-    settings = {
-        "HTTPCACHE_ENABLED": False,
-        "LOG_LEVEL": "CRITICAL",
-        "STATS_CLASS": "crau.utils.StdoutStatsCollector",
-        "USER_AGENT": f"crau {__version__}",
-    }
-    settings.update(arglist_to_dict(value))
-    return settings
+def create_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="crau",
+        description="crau: High-fidelity web archiver and crawler",
+    )
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
+
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # 1. archive
+    archive_parser = subparsers.add_parser(
+        "archive",
+        help="Archive a list of URLs to a WARC or HAR file",
+    )
+    archive_parser.add_argument(
+        "output_filename",
+        type=Path,
+        help="Destination WARC or HAR filename",
+    )
+    archive_parser.add_argument(
+        "urls",
+        nargs="*",
+        help="List of URLs to archive",
+    )
+    archive_parser.add_argument(
+        "-i",
+        "--input-filename",
+        type=Path,
+        help="Path to text file containing one URL per line",
+    )
+    archive_parser.add_argument(
+        "--input-encoding",
+        default="utf-8",
+        help="Encoding of the input text file (default: utf-8)",
+    )
+    archive_parser.add_argument(
+        "--max-depth",
+        type=int,
+        default=1,
+        help="Maximum crawl depth (default: 1)",
+    )
+    archive_parser.add_argument(
+        "--allowed-uris",
+        action="append",
+        default=[],
+        help="Restrict crawling to specific domain or URI prefix (repeatable)",
+    )
+    archive_parser.add_argument(
+        "--backend",
+        choices=["http", "lightpanda", "cdp"],
+        default="http",
+        help="Fetching backend engine (default: http)",
+    )
+    archive_parser.add_argument(
+        "--format",
+        choices=["warc", "har"],
+        default="warc",
+        help="Archive file format (default: warc)",
+    )
+    archive_parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=16,
+        help="Maximum concurrent requests (default: 16)",
+    )
+    archive_parser.add_argument(
+        "--concurrency-per-domain",
+        type=int,
+        default=4,
+        help="Maximum concurrent requests per domain (default: 4)",
+    )
+    archive_parser.add_argument(
+        "--autothrottle",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable adaptive latency-based throttling (default: enabled)",
+    )
+    archive_parser.add_argument(
+        "--cache",
+        choices=["sqlite", "warc", "none"],
+        default="sqlite",
+        help="Request cache backend (default: sqlite)",
+    )
+    archive_parser.add_argument(
+        "--cache-warc",
+        type=Path,
+        help="Path to existing WARC file to use as read-only cache",
+    )
+    archive_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=15.0,
+        help="Network request timeout in seconds (default: 15.0)",
+    )
+    archive_parser.add_argument(
+        "--user-agent",
+        help="Custom User-Agent header",
+    )
+    archive_parser.add_argument(
+        "--output-items",
+        type=Path,
+        help="Output directory for scraped items (JSONL/CSV)",
+    )
+    archive_parser.add_argument(
+        "--items-format",
+        choices=["jsonl", "csv"],
+        default="jsonl",
+        help="Export format for scraped dicts (default: jsonl)",
+    )
+
+    # 2. list
+    list_parser = subparsers.add_parser(
+        "list",
+        help="List URIs of response records stored in a WARC file",
+    )
+    list_parser.add_argument(
+        "warc_filename",
+        type=Path,
+        help="Path to the WARC file",
+    )
+
+    # 3. extract
+    extract_parser = subparsers.add_parser(
+        "extract",
+        help="Extract URL content from archive",
+    )
+    extract_parser.add_argument(
+        "warc_filename",
+        type=Path,
+        help="Path to the WARC file",
+    )
+    extract_parser.add_argument(
+        "uri",
+        help="URI to extract from the archive",
+    )
+    extract_parser.add_argument(
+        "output",
+        help="Destination output file path (or '-' for stdout)",
+    )
+    extract_parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=512 * 1024,
+        help="Chunk buffer size in bytes",
+    )
+
+    # 4. play
+    play_parser = subparsers.add_parser(
+        "play",
+        help="Run a local web server playing your archive",
+    )
+    play_parser.add_argument(
+        "warc_filename",
+        type=Path,
+        help="Path to the WARC file",
+    )
+    play_parser.add_argument(
+        "-p",
+        "--port",
+        type=int,
+        default=8000,
+        help="Server port (default: 8000)",
+    )
+    play_parser.add_argument(
+        "-b",
+        "--bind",
+        default="127.0.0.1",
+        help="Server host bind address (default: 127.0.0.1)",
+    )
+
+    # 5. pack
+    pack_parser = subparsers.add_parser(
+        "pack",
+        help="Pack one or more local files into a WARC",
+    )
+    pack_parser.add_argument(
+        "start_url",
+        help="Base URL for the files",
+    )
+    pack_parser.add_argument(
+        "path_or_archive",
+        type=Path,
+        help="Local directory or archive (.tar.gz, .zip) to pack",
+    )
+    pack_parser.add_argument(
+        "warc_filename",
+        type=Path,
+        help="Destination WARC filename",
+    )
+    pack_parser.add_argument(
+        "--inner-directory",
+        type=Path,
+        help="Inner directory inside archive to retrieve files from",
+    )
+
+    return parser
 
 
-@click.group()
-@click.version_option(version=__version__, prog_name="crau")
-def cli():
-    pass
+def handle_archive(args: argparse.Namespace) -> int:
+    urls = list(args.urls)
+    if args.input_filename:
+        if not args.input_filename.exists():
+            sys.stderr.write(f"ERROR: filename {args.input_filename} does not exist.\n")
+            return 2
+        urls.extend(get_urls_from_file(str(args.input_filename), encoding=args.input_encoding))
+
+    if not urls:
+        sys.stderr.write(
+            "ERROR: at least one URL must be provided (or a file containing one per line via -i).\n"
+        )
+        return 2
+
+    cache_backend = None
+    if args.cache_warc:
+        cache_backend = WarcCacheBackend(args.cache_warc)
+    elif args.cache == "sqlite":
+        cache_backend = SqliteCacheBackend()
+    elif args.cache == "none":
+        cache_backend = None
+
+    pipeline = None
+    if args.output_items:
+        pipeline = ItemPipeline(args.output_items, default_format=args.items_format)
+
+    warc_filename = args.output_filename if args.format == "warc" else None
+    har_filename = args.output_filename if args.format == "har" else None
+
+    crawler = Crawler(
+        start_urls=urls,
+        max_depth=args.max_depth,
+        allowed_uris=args.allowed_uris,
+        backend=args.backend,
+        cache=cache_backend,
+        cache_type=args.cache,
+        warc_filename=warc_filename,
+        har_filename=har_filename,
+        pipeline=pipeline,
+        concurrency=args.concurrency,
+        concurrency_per_domain=args.concurrency_per_domain,
+        autothrottle=args.autothrottle,
+        user_agent=args.user_agent,
+        timeout=args.timeout,
+    )
+    crawler.run()
+    return 0
 
 
-@cli.command("list", help="List URIs of response records stored in a WARC file")
-@click.argument("warc_filename")
-def list_uris(warc_filename):
-    warc = WarcReader(warc_filename)
+def handle_list(args: argparse.Namespace) -> int:
+    if not args.warc_filename.exists():
+        sys.stderr.write(f"ERROR: filename {args.warc_filename} does not exist.\n")
+        return 2
+
+    warc = WarcReader(str(args.warc_filename))
     for record in warc:
         if record.rec_type == "response":
-            click.echo(record.rec_headers.get_header("WARC-Target-URI"))
+            uri = record.rec_headers.get_header("WARC-Target-URI")
+            if uri:
+                sys.stdout.write(f"{uri}\n")
+    return 0
 
 
-@cli.command("extract", help="Extract URL content from archive")
-@click.option("--chunk-size", default=512 * 1024)
-@click.argument("warc_filename")
-@click.argument("uri")
-@click.argument("output")
-def extract_uri(chunk_size, warc_filename, uri, output):
-    warc = WarcReader(warc_filename)
-    stream = warc.get_response(uri).content_stream()
+def handle_extract(args: argparse.Namespace) -> int:
+    if not args.warc_filename.exists():
+        sys.stderr.write(f"ERROR: filename {args.warc_filename} does not exist.\n")
+        return 2
 
-    if output == "-":
+    warc = WarcReader(str(args.warc_filename))
+    response = warc.get_response(args.uri)
+    if response is None:
+        sys.stderr.write(f"ERROR: URI {args.uri} not found in archive.\n")
+        return 1
+
+    stream = response.content_stream()
+    chunk_size = args.chunk_size
+
+    if args.output == "-":
         data = stream.read(chunk_size)
         while data != b"":
             sys.stdout.buffer.write(data)
             data = stream.read(chunk_size)
     else:
-        with open(output, mode="wb") as fobj:
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, mode="wb") as fobj:
             data = stream.read(chunk_size)
             while data != b"":
                 fobj.write(data)
                 data = stream.read(chunk_size)
+    return 0
 
 
-@cli.command("archive", help="Archive a list of URLs to a WARC file")
-@click.argument("warc_filename")
-@click.option("--input-filename", "-i")
-@click.option("--input-encoding", default="utf-8")
-@click.option("--cache", is_flag=True)
-@click.option("--max-depth", default=1)
-@click.option("--allowed-uris", multiple=True, default=[])
-@click.option("--autothrottle", is_flag=True)
-@click.option("--log-level", required=False)
-@click.option("--user-agent", required=False)
-@click.option("--settings", "-s", multiple=True, default=[], callback=load_settings)
-@click.argument("URLs", nargs=-1, required=False)
-def archive(
-    warc_filename,
-    input_filename,
-    input_encoding,
-    cache,
-    max_depth,
-    allowed_uris,
-    autothrottle,
-    log_level,
-    settings,
-    user_agent,
-    urls,
-):
-
-    if not input_filename and not urls:
-        click.echo(
-            "ERROR: at least one URL must be provided (or a file containing one per line).",
-            err=True,
-        )
-        exit(1)
-
-    if input_filename:
-        if not Path(input_filename).exists():
-            click.echo(f"ERROR: filename {input_filename} does not exist.", err=True)
-            exit(2)
-        urls = get_urls_from_file(input_filename, encoding=input_encoding)
-
-    if cache:
-        settings["HTTPCACHE_ENABLED"] = True
-
-    if log_level:
-        settings["LOG_LEVEL"] = log_level
-
-    if user_agent:
-        settings["USER_AGENT"] = user_agent
-
-    if autothrottle:
-        settings.update(
-            {
-                "AUTOTHROTTLE_ENABLED": True,
-                "AUTOTHROTTLE_DEBUG": True,
-            }
-        )
-
-    process = CrawlerProcess(settings=settings)
-    process.crawl(
-        CrauSpider,
-        warc_filename=warc_filename,
-        urls=urls,
-        max_depth=max_depth,
-        allowed_uris=allowed_uris,
-    )
-    process.start()
-    # TODO: if there's an error, print it
-
-
-@cli.command("play", help="Run a backend playing your archive")
-@click.option("-p", "--port", default=8000)
-@click.option("-b", "--bind", default="127.0.0.1")
-@click.argument("warc_filename")
-def play(warc_filename, port, bind):
-    filename = Path(warc_filename)
+def handle_play(args: argparse.Namespace) -> int:
+    filename = args.warc_filename
     if not filename.exists():
-        click.echo(f"ERROR: filename {warc_filename} does not exist.", err=True)
-        exit(2)
+        sys.stderr.write(f"ERROR: filename {filename} does not exist.\n")
+        return 2
 
-    full_filename = filename.absolute()
+    full_filename = filename.resolve()
     collection_name = filename.name.split(".")[0]
     temp_dir = tempfile.mkdtemp()
     old_cwd = os.getcwd()
 
-    os.chdir(temp_dir)
-    run_command(f'wb-manager init "{collection_name}"')
-    run_command(f'wb-manager add "{collection_name}" "{full_filename}"')
-    run_command(f"wayback -p {port} -b {bind}")
-    shutil.rmtree(temp_dir)
-    os.chdir(old_cwd)
+    try:
+        os.chdir(temp_dir)
+        run_command(f'wb-manager init "{collection_name}"')
+        run_command(f'wb-manager add "{collection_name}" "{full_filename}"')
+        run_command(f"wayback -p {args.port} -b {args.bind}")
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        os.chdir(old_cwd)
+    return 0
 
 
-@cli.command("pack", help="Pack one or more files into a WARC")
-@click.argument("start_url")
-@click.argument("path_or_archive")
-@click.argument("warc_filename")
-@click.option("--inner-directory")
-def pack(start_url, path_or_archive, warc_filename, inner_directory=None):
-    # TODO: move the packing code to another module
+def handle_pack(args: argparse.Namespace) -> int:
+    start_url = args.start_url
     if not start_url.endswith("/"):
         start_url = start_url + "/"
-    path_or_archive = Path(path_or_archive)
-    warc_filename = Path(warc_filename)
-    if not warc_filename.parent.exists():
-        warc_filename.parent.mkdir(parents=True)
-    inner_directory = Path(inner_directory) if inner_directory is not None else None
+
+    path_or_archive = args.path_or_archive
+    warc_filename = args.warc_filename
+    warc_filename.parent.mkdir(parents=True, exist_ok=True)
 
     offset = time.timezone if (time.localtime().tm_isdst == 0) else time.altzone
     tz = datetime.timezone(offset=-datetime.timedelta(seconds=offset))
-    with warc_filename.open(mode="wb") as warc_fobj:
+    with open(warc_filename, mode="wb") as warc_fobj:
         writer = WARCWriter(warc_fobj, gzip=warc_filename.suffixes[-1].lower() == ".gz")
         for file_info in tqdm(
-            archive_files(path_or_archive, inner_directory), "Packing files"
+            archive_files(path_or_archive, args.inner_directory),
+            "Packing files",
+            file=sys.stderr,
         ):
             if file_info.is_dir:
                 continue
@@ -232,3 +411,31 @@ def pack(start_url, path_or_archive, warc_filename, inner_directory=None):
                     warc_headers_dict=warc_headers_dict,
                 )
             )
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = create_parser()
+    args = parser.parse_args(argv)
+
+    handlers = {
+        "archive": handle_archive,
+        "list": handle_list,
+        "extract": handle_extract,
+        "play": handle_play,
+        "pack": handle_pack,
+    }
+
+    handler = handlers.get(args.command)
+    if handler:
+        return handler(args)
+    return 1
+
+
+def cli() -> None:
+    """Entry point for console scripts."""
+    sys.exit(main())
+
+
+if __name__ == "__main__":
+    cli()
