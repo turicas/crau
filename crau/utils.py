@@ -1,7 +1,16 @@
 import io
 from urllib.parse import urlparse
 
-from scrapy.statscollectors import MemoryStatsCollector
+try:
+    from scrapy.statscollectors import MemoryStatsCollector
+except ImportError:
+    class MemoryStatsCollector:  # type: ignore
+        def __init__(self, *args, **kwargs):
+            self._stats = {}
+
+        def inc_value(self, key, count=1, start=0, spider=None):
+            self._stats[key] = self._stats.get(key, start) + count
+
 from tqdm import tqdm
 from warcio.archiveiterator import ArchiveIterator
 from warcio.statusandheaders import StatusAndHeaders
