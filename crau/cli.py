@@ -86,9 +86,19 @@ def create_parser() -> argparse.ArgumentParser:
     )
     archive_parser.add_argument(
         "--backend",
-        choices=["http", "lightpanda", "cdp"],
+        choices=["http", "chromium", "firefox", "lightpanda", "cdp"],
         default="http",
         help="Fetching backend engine (default: http)",
+    )
+    archive_parser.add_argument(
+        "--binary-path",
+        type=Path,
+        help="Path to custom browser executable binary (Chromium, Firefox, Lightpanda)",
+    )
+    archive_parser.add_argument(
+        "--user-data-dir",
+        type=Path,
+        help="Custom user data directory / profile for browser backends",
     )
     archive_parser.add_argument(
         "--format",
@@ -281,6 +291,8 @@ def handle_archive(args: argparse.Namespace) -> int:
         autothrottle=args.autothrottle,
         user_agent=args.user_agent,
         timeout=args.timeout,
+        binary_path=args.binary_path,
+        user_data_dir=args.user_data_dir,
     )
     crawler.run()
     return 0

@@ -19,6 +19,8 @@ from crau.engine.throttle import AutoThrottle
 from crau.extractor import extract_resources
 from crau.fetchers.base import Fetcher
 from crau.fetchers.cdp import CdpBrowserFetcher
+from crau.fetchers.chromium import ChromiumFetcher
+from crau.fetchers.firefox import FirefoxFetcher
 from crau.fetchers.http import AsyncHttpFetcher
 from crau.fetchers.lightpanda import LightpandaFetcher
 from crau.models import NetworkTransaction, create_har_log
@@ -91,6 +93,8 @@ class Crawler:
         user_agent: str | None = None,
         timeout: float = 15.0,
         max_retries: int = 3,
+        binary_path: str | Path | None = None,
+        user_data_dir: str | Path | None = None,
     ):
         self.start_urls = list(start_urls)
         self.max_depth = max_depth
@@ -109,6 +113,8 @@ class Crawler:
         self.user_agent = user_agent
         self.timeout = timeout
         self.max_retries = max_retries
+        self.binary_path = binary_path
+        self.user_data_dir = user_data_dir
 
         self._default_callback: Callable[[Response], Any] | None = None
         self._all_transactions: list[NetworkTransaction] = []
@@ -122,8 +128,26 @@ class Crawler:
     def _resolve_fetcher(self) -> Fetcher:
         if self.fetcher:
             return self.fetcher
-        if self.backend == "lightpanda":
-            return LightpandaFetcher(timeout=self.timeout, user_agent=self.user_agent)
+        if self.backend == "chromium":
+            return ChromiumFetcher(
+                binary_path=self.binary_path,
+                user_data_dir=self.user_data_dir,
+                timeout=self.timeout,
+                user_agent=self.user_agent,
+            )
+        elif self.backend == "firefox":
+            return FirefoxFetcher(
+                binary_path=self.binary_path,
+                user_data_dir=self.user_data_dir,
+                timeout=self.timeout,
+                user_agent=self.user_agent,
+            )
+        elif self.backend == "lightpanda":
+            return LightpandaFetcher(
+                binary_path=str(self.binary_path) if self.binary_path else "lightpanda",
+                timeout=self.timeout,
+                user_agent=self.user_agent,
+            )
         elif self.backend == "cdp":
             return CdpBrowserFetcher(
                 endpoint_url="ws://127.0.0.1:9222",
