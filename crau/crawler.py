@@ -83,6 +83,7 @@ class Crawler:
         cache_type: str = "sqlite",
         warc_filename: str | Path | None = None,
         har_filename: str | Path | None = None,
+        format: str = "warc",
         pipeline: ItemPipeline | None = None,
         concurrency: int = 16,
         concurrency_per_domain: int = 4,
@@ -100,6 +101,7 @@ class Crawler:
         self.cache_type = cache_type.lower()
         self.warc_filename = Path(warc_filename) if warc_filename else None
         self.har_filename = Path(har_filename) if har_filename else None
+        self.format = format.lower()
         self.pipeline = pipeline
         self.concurrency = concurrency
         self.concurrency_per_domain = concurrency_per_domain
@@ -110,6 +112,7 @@ class Crawler:
 
         self._default_callback: Callable[[Response], Any] | None = None
         self._all_transactions: list[NetworkTransaction] = []
+        self._pages: list[Any] = []
 
     def on_response(self, fn: Callable[[Response], Any]):
         """Decorator for setting default response parser callback."""
@@ -213,12 +216,14 @@ class Crawler:
                         transactions = await cache.get(item.url)
 
                     # 2. Fetch from network on cache miss
+                    page = None
                     if not transactions:
                         retries = 0
                         while retries <= self.max_retries:
                             try:
                                 res = await fetcher.fetch(item.url)
                                 transactions = res.transactions
+                                page = res.page
                                 if transactions:
                                     last_tx = transactions[-1]
                                     throttle.record_latency(
@@ -250,10 +255,23 @@ class Crawler:
                             warc_fobj.flush()
 
                     final_tx = transactions[-1]
+                    is_dependency = item.meta.get("is_dependency", False)
+                    if page is None:
+                        from crau.models import Page
+                        page = Page(
+                            url=final_tx.request.url,
+                            status_code=final_tx.response.status_code,
+                            content=final_tx.response.raw_body.decode("utf-8", errors="replace"),
+                            raw_body=final_tx.response.raw_body,
+                            transactions=transactions,
+                        )
+                    if not is_dependency:
+                        self._pages.append(page)
+
                     resp = Response(
                         url=final_tx.request.url,
                         status=final_tx.response.status_code,
-                        text=final_tx.response.raw_body.decode("utf-8", errors="replace"),
+                        text=page.content,
                         body=final_tx.response.raw_body,
                         headers=final_tx.response.raw_headers,
                         transactions=transactions,
@@ -286,6 +304,7 @@ class Crawler:
                                         res.url,
                                         depth=item.depth,
                                         callback=None,
+                                        meta={"is_dependency": True},
                                     )
                                 elif res.link_type == "anchor":
                                     if item.depth < self.max_depth:
@@ -296,6 +315,7 @@ class Crawler:
                                                 res.url,
                                                 depth=item.depth + 1,
                                                 callback=None,
+                                                meta={"is_dependency": False},
                                             )
 
                     scheduler.task_done()
@@ -306,8 +326,16 @@ class Crawler:
 
         if self.har_filename:
             self.har_filename.parent.mkdir(parents=True, exist_ok=True)
+            mode = "raw"
+            if self.format == "rendered-har":
+                mode = "rendered"
+            elif self.format == "rendered-only-har":
+                mode = "rendered-only"
+
             har_data = create_har_log(
                 self._all_transactions,
+                pages=self._pages,
+                mode=mode,
                 creator_version=__version__,
             )
             self.har_filename.write_text(

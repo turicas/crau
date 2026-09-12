@@ -109,18 +109,24 @@ class NetworkTransaction:
         )
         return req_record, resp_record
 
-    def to_har_entry(self) -> dict:
+    def to_har_entry(self, override_text: str | None = None) -> dict:
         """Convert transaction into an entry adhering to the HAR 1.2 specification."""
         mime_type = _get_content_type(self.response.raw_headers)
-        try:
-            content_text = self.response.raw_body.decode("utf-8")
+        if override_text is not None:
+            content_text = override_text
             content_encoding = None
-        except UnicodeDecodeError:
-            content_text = base64.b64encode(self.response.raw_body).decode("ascii")
-            content_encoding = "base64"
+            body_size = len(override_text.encode("utf-8"))
+        else:
+            try:
+                content_text = self.response.raw_body.decode("utf-8")
+                content_encoding = None
+            except UnicodeDecodeError:
+                content_text = base64.b64encode(self.response.raw_body).decode("ascii")
+                content_encoding = "base64"
+            body_size = len(self.response.raw_body)
 
         content_dict: dict = {
-            "size": len(self.response.raw_body),
+            "size": body_size,
             "mimeType": mime_type,
             "text": content_text,
         }
@@ -156,7 +162,7 @@ class NetworkTransaction:
                 "content": content_dict,
                 "redirectURL": redirect_url,
                 "headersSize": -1,
-                "bodySize": len(self.response.raw_body),
+                "bodySize": body_size,
             },
             "cache": {},
             "timings": {
@@ -185,10 +191,42 @@ class CrawlResult:
 
 def create_har_log(
     transactions: list[NetworkTransaction],
+    pages: list[Page] | None = None,
+    mode: str = "raw",
     creator_name: str = "crau",
     creator_version: str = "1.0.0",
 ) -> dict:
-    """Format a list of network transactions into a full HAR 1.2 root object."""
+    """Format network transactions into a full HAR 1.2 root object.
+
+    Modes:
+      - 'raw': all captured network transactions with original wire bodies.
+      - 'rendered': all captured network transactions, but target pages have their
+        response text replaced by the rendered DOM HTML.
+      - 'rendered-only': only the target navigation pages, with rendered DOM HTML.
+    """
+    entries = []
+    pages_list = pages or []
+
+    # Map main transaction IDs to rendered DOM content
+    rendered_by_tx_id: dict[int, str] = {}
+    main_transactions: list[tuple[NetworkTransaction, str]] = []
+    for page in pages_list:
+        if page.transactions:
+            main_tx = page.transactions[-1]
+            rendered_by_tx_id[id(main_tx)] = page.content
+            main_transactions.append((main_tx, page.content))
+
+    if mode == "rendered-only":
+        for tx, rendered_text in main_transactions:
+            entries.append(tx.to_har_entry(override_text=rendered_text))
+    elif mode == "rendered":
+        for tx in transactions:
+            override = rendered_by_tx_id.get(id(tx))
+            entries.append(tx.to_har_entry(override_text=override))
+    else:  # 'raw'
+        for tx in transactions:
+            entries.append(tx.to_har_entry())
+
     return {
         "log": {
             "version": "1.2",
@@ -196,6 +234,6 @@ def create_har_log(
                 "name": creator_name,
                 "version": creator_version,
             },
-            "entries": [tx.to_har_entry() for tx in transactions],
+            "entries": entries,
         }
     }

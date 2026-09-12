@@ -92,9 +92,9 @@ def create_parser() -> argparse.ArgumentParser:
     )
     archive_parser.add_argument(
         "--format",
-        choices=["warc", "har"],
+        choices=["warc", "har", "rendered-har", "rendered-only-har"],
         default="warc",
-        help="Archive file format (default: warc)",
+        help="Archive file format: warc, har (wire-level), rendered-har (all network + target DOM) or rendered-only-har (only target DOMs) (default: warc)",
     )
     archive_parser.add_argument(
         "--concurrency",
@@ -261,8 +261,9 @@ def handle_archive(args: argparse.Namespace) -> int:
     if args.output_items:
         pipeline = ItemPipeline(args.output_items, default_format=args.items_format)
 
-    warc_filename = args.output_filename if args.format == "warc" else None
-    har_filename = args.output_filename if args.format == "har" else None
+    is_har = args.format in ("har", "rendered-har", "rendered-only-har")
+    warc_filename = None if is_har else args.output_filename
+    har_filename = args.output_filename if is_har else None
 
     crawler = Crawler(
         start_urls=urls,
@@ -273,6 +274,7 @@ def handle_archive(args: argparse.Namespace) -> int:
         cache_type=args.cache,
         warc_filename=warc_filename,
         har_filename=har_filename,
+        format=args.format,
         pipeline=pipeline,
         concurrency=args.concurrency,
         concurrency_per_domain=args.concurrency_per_domain,

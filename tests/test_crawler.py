@@ -174,3 +174,54 @@ async def test_crawler_spider_class_api(run_test_site, tmp_path):
     data = [json.loads(line) for line in jsonl_file.read_text().splitlines()]
     assert len(data) == 1
     assert data[0]["page2_title"] == "Page 2"
+
+
+@pytest.mark.asyncio
+async def test_crawler_rendered_har_format(run_test_site, tmp_path):
+    import json
+    base_url = await run_test_site()
+    har_file = tmp_path / "rendered.har"
+
+    crawler = Crawler(
+        start_urls=[f"{base_url}/page1"],
+        max_depth=0,
+        har_filename=har_file,
+        format="rendered-har",
+    )
+    await crawler.crawl()
+
+    assert har_file.exists()
+    data = json.loads(har_file.read_text())
+    entries = data["log"]["entries"]
+    # Contains both page1 and the dependency img/pic.png
+    urls = [e["request"]["url"] for e in entries]
+    assert f"{base_url}/page1" in urls
+    assert f"{base_url}/img/pic.png" in urls
+
+    page1_entry = [e for e in entries if e["request"]["url"] == f"{base_url}/page1"][0]
+    assert "<h1>Page 1</h1>" in page1_entry["response"]["content"]["text"]
+
+
+@pytest.mark.asyncio
+async def test_crawler_rendered_only_har_format(run_test_site, tmp_path):
+    import json
+    base_url = await run_test_site()
+    har_file = tmp_path / "rendered_only.har"
+
+    crawler = Crawler(
+        start_urls=[f"{base_url}/page1"],
+        max_depth=1,
+        har_filename=har_file,
+        format="rendered-only-har",
+    )
+    await crawler.crawl()
+
+    assert har_file.exists()
+    data = json.loads(har_file.read_text())
+    entries = data["log"]["entries"]
+    # Only target navigation pages (page1 and page2), NO img/pic.png dependency!
+    urls = [e["request"]["url"] for e in entries]
+    assert f"{base_url}/page1" in urls
+    assert f"{base_url}/page2" in urls
+    assert f"{base_url}/img/pic.png" not in urls
+    assert len(entries) == 2
