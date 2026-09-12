@@ -31,6 +31,38 @@ crau archive myarchive.warc.gz -i urls.txt
 
 Run `crau archive --help` for more options.
 
+### Choosing Backend and Archive Format
+
+crau supports pluggable backends and archival formats:
+
+```bash
+# 1. Wire-level HTTP/1.1 (default, fast, exact bytes preservation)
+crau archive archive.warc.gz https://example.com
+
+# 2. Headless Chromium via CDP
+crau archive archive.har https://example.com --backend chromium --format har
+
+# 3. Headless Firefox via WebDriver BiDi
+crau archive archive.har https://example.com --backend firefox --format rendered-har
+
+# 4. Lightpanda headless browser
+crau archive archive.har https://example.com --backend lightpanda --format rendered-only-har
+```
+
+Available formats:
+- `warc`: standard ISO WARC archive format.
+- `har`: complete wire-level HTTP Archive (all network transactions).
+- `rendered-har`: all network transactions, with target pages replaced by the JavaScript-rendered DOM.
+- `rendered-only-har`: only target navigation pages containing their JavaScript-rendered DOM (no secondary assets).
+
+### Installing Browser Dependencies
+
+Browser engines are optional:
+- **Chromium / Chrome**: `apt install -y chromium` (Debian/Ubuntu) or use Google Chrome.
+- **Firefox**: `apt install -y firefox-esr` (Debian/Ubuntu) or Firefox.
+- **Lightpanda**: `pip install crau[lightpanda]`
+- **Custom Profile**: pass `--user-data-dir /path/to/profile` to persist cookies and sessions.
+
 ### Extracting data from an archive
 
 List archived URLs in a WARC file:
