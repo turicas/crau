@@ -3,3 +3,4 @@ lxml
 pywb
 tqdm
 warcio
+websockets
