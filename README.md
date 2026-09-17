@@ -244,6 +244,9 @@ pytest
 ruff check --select F crau tests
 ```
 
+`scripts/smoke_test.py` runs the archiver against a real site with every backend
+that is installed (`--backend all`).
+
 Install an editable version of the package:
 
 ```bash
