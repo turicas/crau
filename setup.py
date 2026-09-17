@@ -9,7 +9,6 @@ setup(
     url="https://github.com/turicas/crau/",
     python_requires=">=3.10",
     install_requires=[
-        "click",
         "h11",
         "lxml",
         "scrapy",
