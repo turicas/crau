@@ -10,6 +10,7 @@ setup(
     install_requires=[
         "click",
         "h11",
+        "lxml",
         "pywb",
         "scrapy",
         "tqdm",
