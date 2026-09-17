@@ -15,6 +15,11 @@ setup(
         "tqdm",
         "warcio",
     ],
+    extras_require={
+        "browser": ["websockets"],
+        "lightpanda": ["websockets", "lightpanda"],
+        "all": ["websockets", "lightpanda"],
+    },
     packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
     keywords="web crawling scraping archiving",
     entry_points={"console_scripts": ["crau = crau.cli:cli"]},

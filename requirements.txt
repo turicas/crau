@@ -4,3 +4,4 @@ pywb
 scrapy
 tqdm
 warcio
+websockets
