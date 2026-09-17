@@ -1,7 +1,6 @@
 click
 h11
 lxml
-pywb
 scrapy
 tqdm
 warcio

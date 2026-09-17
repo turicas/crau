@@ -6,7 +6,13 @@ list of URLs.
 
 ## Installation
 
-`pip install crau`
+`pip install crau` (Python 3.10+). Optional extras:
+
+- `crau[play]`: [pywb](https://github.com/webrecorder/pywb) for `crau play` (pywb itself
+  only supports Python 3.7-3.12)
+- `crau[browser]`: the Chromium, Firefox and CDP backends
+- `crau[lightpanda]`: the Lightpanda backend
+- `crau[all]`: everything above
 
 
 ## Running
@@ -108,7 +114,8 @@ crau extract myarchive.warc.gz https://example.com/page.html extracted-page.html
 
 ### Playing the archived data on your Web browser
 
-Run a server on [localhost:8000](http://localhost:8000) to play your archive (see `-p`/`-b`):
+Run a server on [localhost:8000](http://localhost:8000) to play your archive (see `-p`/`-b`;
+needs `pip install crau[play]`):
 
 ```bash
 crau play myarchive.warc.gz

@@ -7,19 +7,22 @@ setup(
     author="Álvaro Justen",
     author_email="alvarojusten@gmail.com",
     url="https://github.com/turicas/crau/",
+    python_requires=">=3.10",
     install_requires=[
         "click",
         "h11",
         "lxml",
-        "pywb",
         "scrapy",
         "tqdm",
         "warcio",
     ],
+    # pywb (only needed by `crau play`) does not support Python >= 3.13 and pins old
+    # gevent/greenlet, so it is an extra instead of a hard dependency
     extras_require={
+        "play": ["pywb"],
         "browser": ["websockets"],
         "lightpanda": ["websockets", "lightpanda"],
-        "all": ["websockets", "lightpanda"],
+        "all": ["pywb", "websockets", "lightpanda"],
     },
     packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
     keywords="web crawling scraping archiving",
