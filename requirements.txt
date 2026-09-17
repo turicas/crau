@@ -1,4 +1,5 @@
 click
+h11
 pywb
 scrapy
 tqdm
