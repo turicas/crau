@@ -1,5 +1,9 @@
+import codecs
+import gzip
 import io
-from urllib.parse import urlparse
+import re
+import zlib
+from urllib.parse import quote, urlparse, urlunparse
 
 from scrapy.statscollectors import MemoryStatsCollector
 from tqdm import tqdm
@@ -67,7 +71,6 @@ HTTP_STATUS_CODES = {
     444: "No Response",  # Unofficial/nginx
     449: "Retry With",  # Unofficial/Internet Information Services
     450: "Blocked by Windows Parental Controls",  # Unofficial/Microsoft
-    451: "Redirect",  # Unofficial/Internet Information Services
     451: "Unavailable For Legal Reasons",
     460: "Client closed the connection",  # Unofficial/AWS Elastic Load Balancer
     463: "Too many forward IPs",  # Unofficial/AWS Elastic Load Balancer
@@ -76,7 +79,6 @@ HTTP_STATUS_CODES = {
     496: "SSL Certificate Required",  # Unofficial/nginx
     497: "HTTP Request Sent to HTTPS Port",  # Unofficial/nginx
     498: "Invalid Token",  # Unofficial/Esri
-    499: "Client Closed Request",  # Unofficial/nginx
     499: "Token Required",  # Unofficial/Esri
     500: "Internal Server Error",
     501: "Not Implemented",
@@ -96,10 +98,8 @@ HTTP_STATUS_CODES = {
     523: "Origin Is Unreachable",  # Unofficial/Cloudflare
     524: "A Timeout Occurred",  # Unofficial/Cloudflare
     525: "SSL Handshake Failed",  # Unofficial/Cloudflare
-    526: "Invalid SSL Certificate",  # Unofficial/Cloudflare
     526: "Invalid SSL Certificate",  # Unofficial/Cloudflare/Cloud Foundry
     527: "Railgun Error",  # Unofficial/Cloudflare
-    530: "Cloudflare Error",  # Unofficial/Cloudflare
     530: "Site is frozen",  # Unofficial
     598: "Network read timeout error",  # Unofficial/Informal convention
 }
@@ -217,3 +217,116 @@ def resource_matches_base_url(absolute_url, allowed):
         )
         or not allowed
     )
+
+
+def iri_to_uri(url: str) -> str:
+    """Convert an IRI (non-ASCII/unsafe chars in path, query or host) to an ASCII-safe URI.
+
+    Already percent-encoded sequences are preserved (idempotent), so calling it on
+    a URL that came from the network is safe.
+    """
+    parsed = urlparse(url)
+    netloc = parsed.netloc
+    try:
+        netloc.encode("ascii")
+    except UnicodeEncodeError:
+        host = parsed.hostname or ""
+        netloc = host.encode("idna").decode("ascii")
+        if parsed.port:
+            netloc = f"{netloc}:{parsed.port}"
+        if parsed.username:
+            userinfo = quote(parsed.username, safe="")
+            if parsed.password:
+                userinfo += ":" + quote(parsed.password, safe="")
+            netloc = f"{userinfo}@{netloc}"
+    return urlunparse(
+        (
+            parsed.scheme,
+            netloc,
+            quote(parsed.path, safe="/%:@!$&'()*+,;=~"),
+            quote(parsed.params, safe="/%:@!$&'()*+,;=~"),
+            quote(parsed.query, safe="/%:@!$&'()*+,;=?~"),
+            quote(parsed.fragment, safe="/%:@!$&'()*+,;=?~"),
+        )
+    )
+
+
+REGEXP_CHARSET_PARAM = re.compile(rb"charset\s*=\s*[\"']?([A-Za-z0-9._:-]+)", re.IGNORECASE)
+REGEXP_META_CHARSET = re.compile(rb"<meta[^>]+charset\s*=\s*[\"']?([A-Za-z0-9._:-]+)", re.IGNORECASE)
+REGEXP_XML_ENCODING = re.compile(rb"^\s*<\?xml[^>]+encoding\s*=\s*[\"']([A-Za-z0-9._:-]+)", re.IGNORECASE)
+
+
+def get_header(headers: list[tuple[bytes, bytes]], name: bytes) -> bytes | None:
+    """Return the first value of a header (case-insensitive) or None."""
+    name = name.lower()
+    for key, value in headers:
+        if key.lower() == name:
+            return value
+    return None
+
+
+def decompress_body(body: bytes, headers: list[tuple[bytes, bytes]]) -> bytes:
+    """Undo Content-Encoding (gzip, deflate) so the payload can be parsed; unknown encodings are returned as-is."""
+    encoding = (get_header(headers, b"content-encoding") or b"").strip().lower()
+    if not body or encoding in (b"", b"identity"):
+        return body
+    try:
+        if encoding in (b"gzip", b"x-gzip"):
+            return gzip.decompress(body)
+        if encoding == b"deflate":
+            try:
+                return zlib.decompress(body)
+            except zlib.error:
+                return zlib.decompress(body, -zlib.MAX_WBITS)
+    except (OSError, EOFError, zlib.error):
+        return body
+    return body
+
+
+def _valid_codec(name: bytes | str | None) -> str | None:
+    if not name:
+        return None
+    if isinstance(name, bytes):
+        name = name.decode("ascii", errors="replace")
+    try:
+        return codecs.lookup(name).name
+    except LookupError:
+        return None
+
+
+def detect_charset(body: bytes, headers: list[tuple[bytes, bytes]]) -> str:
+    """Charset from Content-Type, then BOM, then <meta charset>/<?xml encoding?>, defaulting to utf-8."""
+    content_type = get_header(headers, b"content-type") or b""
+    match = REGEXP_CHARSET_PARAM.search(content_type)
+    codec = _valid_codec(match.group(1)) if match else None
+    if codec:
+        return codec
+
+    if body.startswith(codecs.BOM_UTF8):
+        return "utf-8-sig"
+    if body.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return "utf-16"
+
+    head = body[:4096]
+    for regexp in (REGEXP_META_CHARSET, REGEXP_XML_ENCODING):
+        match = regexp.search(head)
+        codec = _valid_codec(match.group(1)) if match else None
+        if codec:
+            return codec
+    return "utf-8"
+
+
+def decode_body(body: bytes, headers: list[tuple[bytes, bytes]]) -> str:
+    """Decompress and decode a response body to text using the declared charset (lossless fallback to latin-1)."""
+    payload = decompress_body(body, headers)
+    charset = detect_charset(payload, headers)
+    try:
+        return payload.decode(charset)
+    except (UnicodeDecodeError, LookupError):
+        pass
+    if charset != "utf-8":
+        try:
+            return payload.decode("utf-8")
+        except UnicodeDecodeError:
+            pass
+    return payload.decode("latin-1")
