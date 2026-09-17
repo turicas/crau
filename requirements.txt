@@ -1,6 +1,5 @@
 h11
 lxml
-scrapy
 tqdm
 warcio
 websockets

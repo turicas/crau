@@ -1,14 +1,10 @@
 import codecs
 import gzip
-import io
 import re
 import zlib
 from urllib.parse import quote, urlparse, urlunparse
 
-from scrapy.statscollectors import MemoryStatsCollector
-from tqdm import tqdm
 from warcio.archiveiterator import ArchiveIterator
-from warcio.statusandheaders import StatusAndHeaders
 
 # Status/messages taken from <https://en.wikipedia.org/wiki/List_of_HTTP_status_codes>
 HTTP_STATUS_CODES = {
@@ -142,63 +138,6 @@ class WarcReader:
     def __del__(self):
         if self.__fobj is not None:
             self.__fobj.close()
-
-
-class StdoutStatsCollector(MemoryStatsCollector):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.progress_bar = tqdm(
-            desc="Downloading", unit="req", unit_scale=True, dynamic_ncols=True
-        )
-
-    def inc_value(self, key, count=1, start=0, spider=None):
-        super().inc_value(key, count=count, start=start, spider=spider)
-        if key == "response_received_count":
-            self.progress_bar.n = self._stats["response_received_count"]
-            self.progress_bar.refresh()
-
-
-def get_headers_list(headers):
-    # TODO: fix if list has more than one value
-    # TODO: decode properly
-    return [
-        (key.decode("ascii"), value[0].decode("ascii"))
-        for key, value in headers.items()
-    ]
-
-
-def write_warc_request_response(writer, response):
-    request = response.request
-    path = request.url[request.url.find("/", len(urlparse(request.url).scheme) + 3) :]
-
-    http_headers = StatusAndHeaders(
-        # TODO: fix HTTP version
-        f"{request.method} {path} HTTP/1.1",
-        get_headers_list(request.headers),
-        is_http_request=True,
-    )
-    writer.write_record(
-        writer.create_warc_record(request.url, "request", http_headers=http_headers)
-    )
-
-    # XXX: we're currently guessing the status "title" by its code, but this
-    # title may not be the original from HTTP server.
-    status_title = HTTP_STATUS_CODES.get(response.status, "Unknown")
-    http_headers = StatusAndHeaders(
-        f"{response.status} {status_title}",
-        get_headers_list(response.headers),
-        protocol=response.protocol,
-        is_http_request=False,
-    )
-    # TODO: what about redirects?
-    writer.write_record(
-        writer.create_warc_record(
-            response.url,
-            "response",
-            payload=io.BytesIO(response.body),
-            http_headers=http_headers,
-        )
-    )
 
 
 def resource_matches_base_url(absolute_url, allowed):

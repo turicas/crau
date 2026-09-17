@@ -11,7 +11,6 @@ setup(
     install_requires=[
         "h11",
         "lxml",
-        "scrapy",
         "tqdm",
         "warcio",
     ],
