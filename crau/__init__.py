@@ -1,3 +1,13 @@
-from .cli import cli  # noqa
-from .spider import CrauSpider  # noqa
-from .version import __version__  # noqa
+from crau.cli import cli, main
+from crau.crawler import Crawler, Request, Response, Spider
+from crau.version import __version__
+
+__all__ = [
+    "Crawler",
+    "Request",
+    "Response",
+    "Spider",
+    "cli",
+    "main",
+    "__version__",
+]
