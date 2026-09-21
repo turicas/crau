@@ -240,14 +240,17 @@ class CdpBrowserFetcher(Fetcher):
 
         rendered_html = await self.evaluate("document.documentElement.outerHTML") or ""
 
-        transactions = await self._collect_transactions(list(self._events))
+        transactions, request_ids = await self._collect_transactions(list(self._events))
         finished_at = time.perf_counter()
 
+        # the document is the last hop of the request that started at `url` (redirects keep the requestId)
         main_tx = None
-        for tx in transactions:
-            if tx.request.url == url:
+        main_request_id = None
+        for tx, request_id in zip(transactions, request_ids):
+            if main_request_id is None and tx.request.url == url:
+                main_request_id = request_id
+            if request_id == main_request_id:
                 main_tx = tx
-                break
         if main_tx is None and transactions:
             main_tx = transactions[0]
         if main_tx is None:
@@ -271,44 +274,54 @@ class CdpBrowserFetcher(Fetcher):
         )
         return result.get("result", {}).get("value")
 
-    async def _collect_transactions(self, events: list[dict[str, Any]]) -> list[NetworkTransaction]:
+    async def _collect_transactions(
+        self, events: list[dict[str, Any]]
+    ) -> tuple[list[NetworkTransaction], list[str]]:
         """Pair requestWillBeSent/responseReceived events and download each response body.
 
-        Requests that never got a response (aborted, loadingFailed) are skipped rather
-        than recorded with an invented status.
+        Returns the transactions and, in the same order, the requestId each one came from.
+        A redirect keeps the requestId: the next ``requestWillBeSent`` carries the previous
+        hop's response in ``redirectResponse``, so every hop becomes its own transaction
+        (only the last one has a body). Requests that never got a response (aborted,
+        loadingFailed) are skipped rather than recorded with an invented status.
         """
-        requests: dict[str, dict[str, Any]] = {}
-        responses: dict[str, dict[str, Any]] = {}
-        order: list[str] = []
+        hops: list[dict[str, Any]] = []
+        current: dict[str, dict[str, Any]] = {}
         for event in events:
             params = event.get("params", {})
             request_id = params.get("requestId")
             if not request_id:
                 continue
             if event["method"] == "Network.requestWillBeSent":
-                if request_id not in requests:
-                    order.append(request_id)
-                requests[request_id] = params
-            elif event["method"] == "Network.responseReceived":
-                responses[request_id] = params
+                previous = current.get(request_id)
+                if previous is not None and params.get("redirectResponse"):
+                    previous["response"] = params["redirectResponse"]
+                    previous["redirected"] = True
+                hop = {"request_id": request_id, "params": params, "response": None, "redirected": False}
+                current[request_id] = hop
+                hops.append(hop)
+            elif event["method"] == "Network.responseReceived" and request_id in current:
+                current[request_id]["response"] = params.get("response", {})
 
         transactions: list[NetworkTransaction] = []
-        for request_id in order:
-            request_params = requests[request_id]
-            response_params = responses.get(request_id)
-            if response_params is None:
-                logger.debug("Skipping request without response: %s", request_params.get("request", {}).get("url"))
-                continue
+        request_ids: list[str] = []
+        for hop in hops:
+            request_id = hop["request_id"]
+            request_params = hop["params"]
             request = request_params.get("request", {})
-            response = response_params.get("response", {})
+            response = hop["response"]
+            if response is None:
+                logger.debug("Skipping request without response: %s", request.get("url"))
+                continue
 
             body_bytes = b""
-            try:
-                body_result = await self.send("Network.getResponseBody", {"requestId": request_id})
-                raw = body_result.get("body", "")
-                body_bytes = base64.b64decode(raw) if body_result.get("base64Encoded") else raw.encode("utf-8")
-            except Exception as error:
-                logger.debug("No body for %s: %s", request.get("url"), error)
+            if not hop["redirected"]:
+                try:
+                    body_result = await self.send("Network.getResponseBody", {"requestId": request_id})
+                    raw = body_result.get("body", "")
+                    body_bytes = base64.b64decode(raw) if body_result.get("base64Encoded") else raw.encode("utf-8")
+                except Exception as error:
+                    logger.debug("No body for %s: %s", request.get("url"), error)
 
             wall_time = request_params.get("wallTime")
             timestamp = (
@@ -346,4 +359,5 @@ class CdpBrowserFetcher(Fetcher):
                     remote_address=remote_address,
                 )
             )
-        return transactions
+            request_ids.append(request_id)
+        return transactions, request_ids

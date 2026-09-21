@@ -280,3 +280,56 @@ async def test_cdp_fetcher_settle_without_auto_scroll(run_fake_browser):
     assert "https://example.com/api/late.json" in urls
     assert "https://example.com/lazy.png" not in urls
     assert browser.scrolls == 0
+
+
+class RedirectingBrowser(FakeBrowser):
+    """The navigation is answered with a 302: CDP keeps the requestId and reports the hop in `redirectResponse`."""
+
+    async def _emit_navigation(self, websocket, session_id: str, url: str) -> None:
+        def event(method, params):
+            return json.dumps({"method": method, "params": params, "sessionId": session_id})
+
+        final_url = url + "final"
+        self.bodies = {"doc": {"body": RENDERED_HTML, "base64Encoded": False}}
+        redirect = {
+            "url": url,
+            "status": 302,
+            "statusText": "Found",
+            "headers": {"Location": "/final"},
+            "protocol": "http/1.1",
+            "remoteIPAddress": "203.0.113.7",
+            "remotePort": 80,
+        }
+        final = {"url": final_url, "status": 200, "statusText": "OK", "headers": {"Content-Type": "text/html"}, "protocol": "http/1.1"}
+        for method, params in [
+            ("Network.requestWillBeSent", {"requestId": "doc", "request": {"url": url, "method": "GET", "headers": {}}}),
+            (
+                "Network.requestWillBeSent",
+                {"requestId": "doc", "request": {"url": final_url, "method": "GET", "headers": {}}, "redirectResponse": redirect},
+            ),
+            ("Network.responseReceived", {"requestId": "doc", "response": final}),
+            ("Network.loadingFinished", {"requestId": "doc"}),
+            ("Page.loadEventFired", {"timestamp": 1001.0}),
+        ]:
+            await websocket.send(event(method, params))
+
+
+@pytest.mark.asyncio
+async def test_cdp_fetcher_records_every_redirect_hop(run_fake_browser):
+    endpoint, browser = await run_fake_browser(RedirectingBrowser())
+    async with CdpBrowserFetcher(endpoint_url=endpoint, settle_timeout=0) as fetcher:
+        result = await fetcher.fetch("https://example.com/")
+
+    redirect, final = result.transactions
+    assert (redirect.request.url, redirect.response.status_code) == ("https://example.com/", 302)
+    assert redirect.response.reason_phrase == "Found"
+    assert (b"Location", b"/final") in redirect.response.raw_headers
+    assert redirect.response.body == b""
+    assert redirect.remote_address == ("203.0.113.7", 80)
+    assert (final.request.url, final.response.status_code) == ("https://example.com/final", 200)
+    assert final.response.body == RENDERED_HTML.encode()
+    # the page is the document that was rendered: the last hop of the navigation, not the 302
+    assert result.page.main_transaction is final
+    assert result.page.status_code == 200
+    # the body belongs to the last hop only: asking once is enough
+    assert len([c for c in browser.commands if c["method"] == "Network.getResponseBody"]) == 1
