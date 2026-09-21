@@ -254,3 +254,40 @@ def test_unknown_duration_is_reported_as_minus_one_in_har():
     entry = tx.to_har_entry()
     assert entry["time"] == -1
     assert entry["timings"] == {"send": -1, "wait": -1, "receive": -1}
+
+
+def test_har_entry_has_query_string_and_post_data():
+    tx = NetworkTransaction(
+        request=RawRequest(
+            url="http://example.com/search?q=a%20b&empty=&q=second",
+            method="POST",
+            raw_headers=[(b"content-type", b"application/x-www-form-urlencoded")],
+            raw_body=b"field=value&other=1",
+        ),
+        response=RawResponse(status_code=200, reason_phrase="OK", http_version="HTTP/1.1", raw_body=b"x"),
+    )
+    request = tx.to_har_entry()["request"]
+    assert request["queryString"] == [
+        {"name": "q", "value": "a b"},
+        {"name": "empty", "value": ""},
+        {"name": "q", "value": "second"},
+    ]
+    assert request["postData"] == {"mimeType": "application/x-www-form-urlencoded", "text": "field=value&other=1"}
+    assert request["bodySize"] == 19
+
+
+def test_har_entry_binary_post_data_is_base64_and_bodiless_requests_have_no_post_data():
+    binary = NetworkTransaction(
+        request=RawRequest(url="http://example.com/upload", method="PUT", raw_body=b"\xff\xfe\x00"),
+        response=RawResponse(status_code=204, reason_phrase="No Content", http_version="HTTP/1.1"),
+    )
+    post_data = binary.to_har_entry()["request"]["postData"]
+    assert post_data == {"mimeType": "application/octet-stream", "text": "//4A", "encoding": "base64"}
+
+    plain = NetworkTransaction(
+        request=RawRequest(url="http://example.com/"),
+        response=RawResponse(status_code=200, reason_phrase="OK", http_version="HTTP/1.1", raw_body=b"x"),
+    )
+    request = plain.to_har_entry()["request"]
+    assert "postData" not in request
+    assert request["queryString"] == []

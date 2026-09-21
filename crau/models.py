@@ -4,7 +4,7 @@ import base64
 import datetime
 import io
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 from warcio.statusandheaders import StatusAndHeaders
 from warcio.warcwriter import WARCWriter
@@ -167,21 +167,35 @@ class NetworkTransaction:
                 redirect_url = value.decode("latin1")
                 break
 
+        har_request: dict = {
+            "method": self.request.method,
+            "url": self.request.url,
+            "httpVersion": self.request.http_version,
+            "cookies": [],
+            "headers": _header_tuples_to_har(self.request.raw_headers),
+            "queryString": [
+                {"name": name, "value": value}
+                for name, value in parse_qsl(urlparse(self.request.url).query, keep_blank_values=True)
+            ],
+            "headersSize": -1,
+            "bodySize": len(self.request.raw_body),
+        }
+        if self.request.raw_body:
+            post_data: dict = {"mimeType": _get_content_type(self.request.raw_headers)}
+            try:
+                post_data["text"] = self.request.raw_body.decode("utf-8")
+            except UnicodeDecodeError:
+                # HAR 1.2 only defines `encoding` for response content; binary request bodies borrow it
+                post_data["text"] = base64.b64encode(self.request.raw_body).decode("ascii")
+                post_data["encoding"] = "base64"
+            har_request["postData"] = post_data
+
         # HAR uses -1 for timings that are not available
         time_ms = round(self.duration_seconds * 1000, 2) if self.duration_seconds is not None else -1
         return {
             "startedDateTime": self.request.timestamp.isoformat(),
             "time": time_ms,
-            "request": {
-                "method": self.request.method,
-                "url": self.request.url,
-                "httpVersion": self.request.http_version,
-                "cookies": [],
-                "headers": _header_tuples_to_har(self.request.raw_headers),
-                "queryString": [],
-                "headersSize": -1,
-                "bodySize": len(self.request.raw_body),
-            },
+            "request": har_request,
             "response": {
                 "status": self.response.status_code,
                 "statusText": self.response.reason_phrase,
