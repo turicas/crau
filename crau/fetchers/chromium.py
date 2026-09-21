@@ -163,8 +163,8 @@ class ChromiumFetcher(CdpBrowserFetcher):
             "--disable-dev-shm-usage",
             "--disable-gpu",
             "--disable-crash-reporter",
-            # inert on full Chromium without --enable-automation, but chrome-headless-shell
-            # turns AutomationControlled on by default (navigator.webdriver === true)
+            # with a remote debugging port navigator.webdriver is true even on full Chromium
+            # (measured on Chrome 153); this flag is what turns it back to false
             "--disable-blink-features=AutomationControlled",
             f"--remote-debugging-port={self.port}",
             f"--window-size={self.window_size[0]},{self.window_size[1]}",
