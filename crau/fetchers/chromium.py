@@ -6,14 +6,13 @@ import logging
 import os
 import re
 import shutil
-import socket
 import sys
 import tempfile
 import urllib.request
 from pathlib import Path
 from typing import Any
 
-from crau.fetchers.base import browser_log_tail, create_browser_log
+from crau.fetchers.base import browser_log_tail, browser_port_from_log, create_browser_log
 from crau.fetchers.cdp import HEADLESS_UA_TOKEN, CdpBrowserFetcher
 
 logger = logging.getLogger("crau")
@@ -38,10 +37,7 @@ def _reduced_user_agent(version_text: str) -> str | None:
     )
 
 
-def _find_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("", 0))
-        return sock.getsockname()[1]
+LISTENING_PATTERN = r"DevTools listening on ws://[^:/\s]+:(\d+)/"
 
 
 class ChromiumFetcher(CdpBrowserFetcher):
@@ -61,7 +57,7 @@ class ChromiumFetcher(CdpBrowserFetcher):
     ):
         self.binary_path = str(binary_path) if binary_path else None
         self.host = host
-        self.port = port or _find_free_port()
+        self.port = port  # None: the browser picks one (--remote-debugging-port=0) and announces it
         self.window_size = window_size
         self.extra_args = extra_args or []
 
@@ -75,7 +71,7 @@ class ChromiumFetcher(CdpBrowserFetcher):
         self._proc: asyncio.subprocess.Process | None = None
         self._log_path: Path | None = None
         super().__init__(
-            endpoint_url=f"ws://{self.host}:{self.port}",
+            endpoint_url=f"ws://{self.host}:{self.port or 0}",  # replaced once the browser is up
             timeout=timeout,
             user_agent=user_agent,
             **settle_options,
@@ -119,7 +115,6 @@ class ChromiumFetcher(CdpBrowserFetcher):
 
     async def _wait_until_ready(self, timeout: float | None = None) -> tuple[str, str]:
         """Poll /json/version until the browser answers; returns (websocket URL, native User-Agent)."""
-        url = f"http://{self.host}:{self.port}/json/version"
         # a cold start (binary not in the page cache) can take >10s
         timeout = max(self.timeout, 30.0) if timeout is None else timeout
         start_time = asyncio.get_running_loop().time()
@@ -129,6 +124,12 @@ class ChromiumFetcher(CdpBrowserFetcher):
                     f"Chromium exited prematurely with code {self._proc.returncode}"
                     + browser_log_tail(self._log_path)
                 )
+            if self.port is None:
+                self.port = browser_port_from_log(self._log_path, LISTENING_PATTERN)
+                if self.port is None:
+                    await asyncio.sleep(0.05)
+                    continue
+            url = f"http://{self.host}:{self.port}/json/version"
             try:
                 req = urllib.request.Request(url, headers={"User-Agent": "crau"})
                 with urllib.request.urlopen(req, timeout=0.5) as resp:
@@ -172,7 +173,7 @@ class ChromiumFetcher(CdpBrowserFetcher):
             # with a remote debugging port navigator.webdriver is true even on full Chromium
             # (measured on Chrome 153); this flag is what turns it back to false
             "--disable-blink-features=AutomationControlled",
-            f"--remote-debugging-port={self.port}",
+            f"--remote-debugging-port={self.port or 0}",
             f"--window-size={self.window_size[0]},{self.window_size[1]}",
             f"--user-data-dir={self.user_data_dir}",
         ]

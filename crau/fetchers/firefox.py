@@ -7,13 +7,19 @@ import json
 import logging
 import os
 import shutil
-import socket
 import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
-from crau.fetchers.base import Fetcher, NetworkActivity, browser_log_tail, create_browser_log, settle_page
+from crau.fetchers.base import (
+    Fetcher,
+    NetworkActivity,
+    browser_log_tail,
+    browser_port_from_log,
+    create_browser_log,
+    settle_page,
+)
 from crau.models import CrawlResult, NetworkTransaction, Page, RawRequest, RawResponse
 
 try:
@@ -50,10 +56,7 @@ def _normalize_protocol(protocol: str | None) -> str:
     return {"h2": "HTTP/2", "h3": "HTTP/3"}.get(protocol, protocol.upper())
 
 
-def _find_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("", 0))
-        return sock.getsockname()[1]
+LISTENING_PATTERN = r"WebDriver BiDi listening on ws://[^:/\s]+:(\d+)"
 
 
 class FirefoxFetcher(Fetcher):
@@ -88,7 +91,7 @@ class FirefoxFetcher(Fetcher):
             )
         self.binary_path = str(binary_path) if binary_path else None
         self.host = host
-        self.port = port or _find_free_port()
+        self.port = port  # None: the browser picks one (--remote-debugging-port=0) and announces it
         self.window_size = window_size
         self.timeout = timeout
         self.user_agent = user_agent
@@ -164,6 +167,11 @@ class FirefoxFetcher(Fetcher):
                     f"Firefox exited prematurely with code {self._proc.returncode}"
                     + browser_log_tail(self._log_path)
                 )
+            if self.port is None:
+                self.port = browser_port_from_log(self._log_path, LISTENING_PATTERN)
+                if self.port is None:
+                    await asyncio.sleep(0.05)
+                    continue
             try:
                 reader, writer = await asyncio.wait_for(
                     asyncio.open_connection(self.host, self.port),
@@ -283,7 +291,7 @@ class FirefoxFetcher(Fetcher):
             str(self.window_size[0]),
             "--height",
             str(self.window_size[1]),
-            f"--remote-debugging-port={self.port}",
+            f"--remote-debugging-port={self.port or 0}",
             "-profile",
             str(self.user_data_dir),
         ]

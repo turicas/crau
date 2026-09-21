@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -106,6 +107,18 @@ def create_browser_log(prefix: str) -> Path:
     handle, name = tempfile.mkstemp(prefix=f"crau-{prefix}-", suffix=".log")
     os.close(handle)
     return Path(name)
+
+
+def browser_port_from_log(log_path: Path | None, pattern: str) -> int | None:
+    """Port announced by a browser started on port 0; `pattern` must capture the port in group 1.
+
+    Asking the OS for a free port, closing it and handing the number to the browser is a race:
+    another process (or another fetcher) can take the port in between.
+    """
+    if log_path is None or not log_path.exists():
+        return None
+    match = re.search(pattern, log_path.read_text(encoding="utf-8", errors="replace"))
+    return int(match.group(1)) if match else None
 
 
 def browser_log_tail(log_path: Path | None, limit: int = 2000) -> str:

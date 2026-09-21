@@ -2,18 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-import socket
 from pathlib import Path
 from typing import Any
 
-from crau.fetchers.base import browser_log_tail, create_browser_log
+from crau.fetchers.base import browser_log_tail, browser_port_from_log, create_browser_log
 from crau.fetchers.cdp import CdpBrowserFetcher
 
 
-def _find_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("", 0))
-        return sock.getsockname()[1]
+LISTENING_PATTERN = r"address=[^:\s]+:(\d+)"
 
 
 class LightpandaFetcher(CdpBrowserFetcher):
@@ -30,11 +26,11 @@ class LightpandaFetcher(CdpBrowserFetcher):
     ):
         self.binary_path = binary_path
         self.host = host
-        self.port = port or _find_free_port()
+        self.port = port  # None: the browser picks one (--port 0) and announces it
         self._proc: asyncio.subprocess.Process | None = None
         self._log_path: Path | None = None
 
-        endpoint_url = f"ws://{self.host}:{self.port}"
+        endpoint_url = f"ws://{self.host}:{self.port or 0}"  # replaced once the browser is up
         super().__init__(endpoint_url=endpoint_url, timeout=timeout, user_agent=user_agent, **settle_options)
 
     def _resolve_binary(self) -> str:
@@ -57,6 +53,11 @@ class LightpandaFetcher(CdpBrowserFetcher):
                     f"Lightpanda process exited prematurely with code {self._proc.returncode}"
                     + browser_log_tail(self._log_path)
                 )
+            if self.port is None:
+                self.port = browser_port_from_log(self._log_path, LISTENING_PATTERN)
+                if self.port is None:
+                    await asyncio.sleep(0.05)
+                    continue
             try:
                 reader, writer = await asyncio.wait_for(
                     asyncio.open_connection(self.host, self.port),
@@ -74,7 +75,7 @@ class LightpandaFetcher(CdpBrowserFetcher):
 
     async def __aenter__(self) -> "LightpandaFetcher":
         resolved_bin = self._resolve_binary()
-        cmd = [resolved_bin, "serve", "--host", self.host, "--port", str(self.port)]
+        cmd = [resolved_bin, "serve", "--host", self.host, "--port", str(self.port or 0)]
         self._log_path = create_browser_log("lightpanda")
         log = self._log_path.open("wb")
         self._proc = await asyncio.create_subprocess_exec(
@@ -85,6 +86,7 @@ class LightpandaFetcher(CdpBrowserFetcher):
         log.close()
         try:
             await self._wait_until_ready()
+            self.endpoint_url = f"ws://{self.host}:{self.port}"
             await super().__aenter__()
             return self
         except Exception:
