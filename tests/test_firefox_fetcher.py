@@ -212,3 +212,68 @@ async def test_firefox_fetcher_records_every_redirect_hop():
     assert result.page.status_code == 200
     # the collected data belongs to the last hop only: asking once is enough
     assert len([c for c in browser.commands if c["method"] == "network.getData"]) == 1
+
+
+class PostingBidiBrowser(FakeBidiBrowser):
+    """The page sends a POST: the body only exists in a `request` data collector."""
+
+    def __init__(self, request_collector: bool = True):
+        super().__init__()
+        self.request_collector = request_collector
+
+    async def handler(self, websocket):
+        async for message in websocket:
+            data = json.loads(message)
+            self.commands.append(data)
+            method = data["method"]
+            reply = {"type": "success", "id": data["id"], "result": {}}
+            if method == "session.new":
+                reply["result"] = {"sessionId": "sess-1", "capabilities": {}}
+            elif method == "browsingContext.create":
+                reply["result"] = {"context": "ctx-1"}
+            elif method == "network.addDataCollector":
+                kind = data["params"]["dataTypes"][0]
+                if kind == "request" and not self.request_collector:
+                    reply = {"type": "error", "id": data["id"], "error": "invalid argument", "message": "dataTypes"}
+                else:
+                    reply["result"] = {"collector": f"col-{kind}"}
+            elif method == "network.getData":
+                assert data["params"]["collector"] == f"col-{data['params']['dataType']}"
+                value = "field=value" if data["params"]["dataType"] == "request" else '{"ok": true}'
+                reply["result"] = {"bytes": {"type": "string", "value": value}}
+            elif method == "browsingContext.navigate":
+                url = data["params"]["url"]
+                reply["result"] = {"navigation": "nav-1", "url": url}
+                request = {"request": "req-post", "url": url, "method": "POST", "headers": [], "bodySize": 11, "timings": {}}
+                response = {"url": url, "status": 200, "statusText": "OK", "protocol": "http/1.1", "headers": []}
+                for event_method, params in [
+                    ("network.beforeRequestSent", {"navigation": "nav-1", "request": request}),
+                    ("network.responseCompleted", {"navigation": "nav-1", "request": request, "response": response}),
+                ]:
+                    await websocket.send(json.dumps({"type": "event", "method": event_method, "params": params}))
+            elif method == "script.evaluate":
+                reply["result"] = {"type": "success", "result": {"type": "string", "value": "<html></html>"}}
+            await websocket.send(json.dumps(reply))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("request_collector, expected_body", [(True, b"field=value"), (False, b"")])
+async def test_firefox_fetcher_captures_request_bodies_when_the_browser_can(request_collector, expected_body):
+    browser = PostingBidiBrowser(request_collector=request_collector)
+    server = await websockets.serve(browser.handler, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    try:
+        fetcher = FirefoxFetcher(binary_path="/bin/true", port=port, settle_timeout=0)
+        await fetcher._init_bidi_session()
+        try:
+            result = await fetcher.fetch("http://example.com/submit")
+        finally:
+            await fetcher._stop_process()
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    (transaction,) = result.transactions
+    assert transaction.request.method == "POST"
+    assert transaction.request.raw_body == expected_body
+    assert transaction.response.body == b'{"ok": true}'

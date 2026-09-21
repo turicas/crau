@@ -95,6 +95,7 @@ class FirefoxFetcher(Fetcher):
         self.auto_scroll = auto_scroll
         self._activity = NetworkActivity()
         self._collector_id: str | None = None
+        self._request_collector_id: str | None = None
 
         if user_data_dir:
             self.user_data_dir = Path(user_data_dir).resolve()
@@ -242,6 +243,15 @@ class FirefoxFetcher(Fetcher):
         )
         self._collector_id = collector.get("collector")
         try:
+            # a second collector: request bodies (POST data) are not part of the network events
+            request_collector = await self._send_bidi(
+                "network.addDataCollector",
+                {"dataTypes": ["request"], "maxEncodedDataSize": 50 * 1024 * 1024, "contexts": [self._context_id]},
+            )
+            self._request_collector_id = request_collector.get("collector")
+        except RuntimeError as error:
+            logger.debug("Request bodies will not be captured: %s", error)
+        try:
             await self._send_bidi(
                 "browsingContext.setViewport",
                 {
@@ -347,15 +357,21 @@ class FirefoxFetcher(Fetcher):
         return CrawlResult(transactions=transactions, page=page)
 
     async def _get_response_body(self, request_id: str, url: str) -> bytes:
-        if not self._collector_id:
+        return await self._get_data(request_id, url, "response", self._collector_id)
+
+    async def _get_request_body(self, request_id: str, url: str) -> bytes:
+        return await self._get_data(request_id, url, "request", self._request_collector_id)
+
+    async def _get_data(self, request_id: str, url: str, data_type: str, collector_id: str | None) -> bytes:
+        if not collector_id:
             return b""
         try:
             data = await self._send_bidi(
                 "network.getData",
-                {"request": request_id, "dataType": "response", "collector": self._collector_id, "disown": True},
+                {"request": request_id, "dataType": data_type, "collector": collector_id, "disown": True},
             )
         except RuntimeError as error:
-            logger.debug("No body for %s: %s", url, error)
+            logger.debug("No %s body for %s: %s", data_type, url, error)
             return b""
         payload = data.get("bytes", {})
         if payload.get("type") == "base64":
@@ -410,10 +426,14 @@ class FirefoxFetcher(Fetcher):
             if timings.get("requestTime") is not None and timings.get("responseEnd") is not None:
                 duration = (timings["responseEnd"] - timings["requestTime"]) / 1000.0
 
+            request_body = b""
+            if request_data.get("bodySize"):
+                request_body = await self._get_request_body(request_id, url)
             raw_req = RawRequest(
                 url=url,
                 method=request_data.get("method", "GET"),
                 raw_headers=_bidi_headers_to_tuples(request_data.get("headers")),
+                raw_body=request_body,
                 timestamp=timestamp,
             )
             raw_resp = RawResponse(
