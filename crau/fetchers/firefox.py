@@ -365,36 +365,41 @@ class FirefoxFetcher(Fetcher):
     async def _collect_transactions(
         self, events: list[dict[str, Any]]
     ) -> tuple[list[NetworkTransaction], list[str | None]]:
-        """One transaction per network.responseCompleted, with the navigation id each belongs to."""
-        requests: dict[str, dict[str, Any]] = {}
-        responses: dict[str, dict[str, Any]] = {}
-        order: list[str] = []
+        """One transaction per network.responseCompleted, with the navigation id each belongs to.
+
+        A redirect keeps the request id and increments ``redirectCount``, so hops are keyed
+        by both; the collected body belongs to the last hop of each request.
+        """
+        requests: dict[tuple[str, int], dict[str, Any]] = {}
+        responses: dict[tuple[str, int], dict[str, Any]] = {}
+        order: list[tuple[str, int]] = []
+        last_hop: dict[str, int] = {}
         for event in events:
             params = event.get("params", {})
             request_id = params.get("request", {}).get("request")
             if not request_id:
                 continue
-            if event["method"] == "network.beforeRequestSent":
-                if request_id not in requests:
-                    order.append(request_id)
-                    requests[request_id] = params
-            elif event["method"] == "network.responseCompleted":
-                if request_id not in requests:
-                    order.append(request_id)
-                    requests[request_id] = params
-                responses[request_id] = params
+            key = (request_id, int(params.get("redirectCount") or 0))
+            if event["method"] in ("network.beforeRequestSent", "network.responseCompleted"):
+                if key not in requests:
+                    order.append(key)
+                    requests[key] = params
+                    last_hop[request_id] = max(last_hop.get(request_id, 0), key[1])
+                if event["method"] == "network.responseCompleted":
+                    responses[key] = params
 
         transactions: list[NetworkTransaction] = []
         navigations: list[str | None] = []
-        for request_id in order:
-            response_params = responses.get(request_id)
+        for key in order:
+            request_id, hop = key
+            response_params = responses.get(key)
             if response_params is None:
-                logger.debug("Skipping request without response: %s", requests[request_id].get("request", {}).get("url"))
+                logger.debug("Skipping request without response: %s", requests[key].get("request", {}).get("url"))
                 continue
             request_data = response_params.get("request", {})
             response_data = response_params.get("response", {})
             url = request_data.get("url", "")
-            body = await self._get_response_body(request_id, url)
+            body = await self._get_response_body(request_id, url) if hop == last_hop[request_id] else b""
             timings = request_data.get("timings", {})
             timestamp = datetime.datetime.now(datetime.timezone.utc)
             if timings.get("timeOrigin") and timings.get("requestTime") is not None:

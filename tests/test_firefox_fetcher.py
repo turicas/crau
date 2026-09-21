@@ -147,3 +147,68 @@ def test_firefox_user_agent_goes_into_profile_prefs(tmp_path):
     fetcher = FirefoxFetcher(binary_path="/bin/true", user_data_dir=tmp_path, user_agent="crau/ff")
     fetcher._prepare_profile()
     assert 'user_pref("general.useragent.override", "crau/ff");' in (tmp_path / "user.js").read_text()
+
+
+class RedirectingBidiBrowser(FakeBidiBrowser):
+    """The navigation is answered with a 302: BiDi keeps the request id and increments `redirectCount`."""
+
+    async def handler(self, websocket):
+        async for message in websocket:
+            data = json.loads(message)
+            self.commands.append(data)
+            method = data["method"]
+            reply = {"type": "success", "id": data["id"], "result": {}}
+            if method == "session.new":
+                reply["result"] = {"sessionId": "sess-1", "capabilities": {}}
+            elif method == "browsingContext.create":
+                reply["result"] = {"context": "ctx-1"}
+            elif method == "network.addDataCollector":
+                reply["result"] = {"collector": "col-1"}
+            elif method == "network.getData":
+                reply["result"] = {"bytes": {"type": "string", "value": "<html>final</html>"}}
+            elif method == "browsingContext.navigate":
+                url = data["params"]["url"]
+                reply["result"] = {"navigation": "nav-1", "url": url + "final"}
+                location = [{"name": "Location", "value": {"type": "string", "value": "/final"}}]
+                first = {"request": "req-doc", "url": url, "method": "GET", "headers": [], "timings": {}}
+                second = {"request": "req-doc", "url": url + "final", "method": "GET", "headers": [], "timings": {}}
+                found = {"url": url, "status": 302, "statusText": "Found", "protocol": "http/1.1", "headers": location}
+                ok = {"url": url + "final", "status": 200, "statusText": "OK", "protocol": "http/1.1", "headers": []}
+                for event_method, params in [
+                    ("network.beforeRequestSent", {"navigation": "nav-1", "redirectCount": 0, "request": first}),
+                    ("network.responseCompleted", {"navigation": "nav-1", "redirectCount": 0, "request": first, "response": found}),
+                    ("network.beforeRequestSent", {"navigation": "nav-1", "redirectCount": 1, "request": second}),
+                    ("network.responseCompleted", {"navigation": "nav-1", "redirectCount": 1, "request": second, "response": ok}),
+                ]:
+                    await websocket.send(json.dumps({"type": "event", "method": event_method, "params": params}))
+            elif method == "script.evaluate":
+                reply["result"] = {"type": "success", "result": {"type": "string", "value": "<html>rendered</html>"}}
+            await websocket.send(json.dumps(reply))
+
+
+@pytest.mark.asyncio
+async def test_firefox_fetcher_records_every_redirect_hop():
+    browser = RedirectingBidiBrowser()
+    server = await websockets.serve(browser.handler, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    try:
+        fetcher = FirefoxFetcher(binary_path="/bin/true", port=port, settle_timeout=0)
+        await fetcher._init_bidi_session()
+        try:
+            result = await fetcher.fetch("http://example.com/")
+        finally:
+            await fetcher._stop_process()
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    redirect, final = result.transactions
+    assert (redirect.request.url, redirect.response.status_code) == ("http://example.com/", 302)
+    assert (b"Location", b"/final") in redirect.response.raw_headers
+    assert redirect.response.body == b""
+    assert (final.request.url, final.response.status_code) == ("http://example.com/final", 200)
+    assert final.response.body == b"<html>final</html>"
+    assert result.page.main_transaction is final
+    assert result.page.status_code == 200
+    # the collected data belongs to the last hop only: asking once is enough
+    assert len([c for c in browser.commands if c["method"] == "network.getData"]) == 1
