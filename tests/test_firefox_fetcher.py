@@ -119,6 +119,8 @@ async def test_firefox_fetcher_bidi_session_and_real_status():
     assert methods.index("script.addPreloadScript") < methods.index("browsingContext.create")
     preload = [c for c in browser.commands if c["method"] == "script.addPreloadScript"][0]
     assert "webdriver" in preload["params"]["functionDeclaration"]
+    # on the prototype, where the native getter lives: an own property on `navigator` would give the override away
+    assert "Navigator.prototype" in preload["params"]["functionDeclaration"]
 
     assert methods.index("network.addDataCollector") > methods.index("browsingContext.create")
 

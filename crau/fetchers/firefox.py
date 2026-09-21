@@ -24,8 +24,12 @@ except ImportError:
 logger = logging.getLogger("crau")
 
 # Injected in every document before its scripts run: remote-controlled Firefox reports
-# navigator.webdriver === true, the most common bot signal
-WEBDRIVER_PRELOAD_SCRIPT = "() => { Object.defineProperty(navigator, 'webdriver', { get: () => false }); }"
+# navigator.webdriver === true, the most common bot signal. The getter is redefined on the
+# prototype, where the native one lives, so `navigator` gains no own property that
+# Object.getOwnPropertyNames(navigator) would reveal.
+WEBDRIVER_PRELOAD_SCRIPT = (
+    "() => { Object.defineProperty(Navigator.prototype, 'webdriver', { get: () => false, configurable: true }); }"
+)
 
 
 def _bidi_headers_to_tuples(headers: list[dict[str, Any]] | None) -> list[tuple[bytes, bytes]]:
