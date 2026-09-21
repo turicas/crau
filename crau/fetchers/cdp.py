@@ -75,6 +75,8 @@ class CdpBrowserFetcher(Fetcher):
         self.endpoint_url = endpoint_url
         self.timeout = timeout
         self.user_agent = user_agent
+        # subclasses that launch the browser set this when the User-Agent went in as a command-line flag
+        self.user_agent_applied_at_launch = False
         self.settle_timeout = settle_timeout
         self.idle_time = idle_time
         self.min_settle_time = min_settle_time
@@ -104,7 +106,9 @@ class CdpBrowserFetcher(Fetcher):
                 {"maxTotalBufferSize": 256 * 1024 * 1024, "maxResourceBufferSize": 64 * 1024 * 1024},
             )
             await self.send("Runtime.enable")
-            if self.user_agent:
+            # without userAgentMetadata this override empties navigator.userAgentData.brands and drops the
+            # sec-ch-ua header, so it is only used when the User-Agent could not be set at launch
+            if self.user_agent and not self.user_agent_applied_at_launch:
                 await self.send("Network.setUserAgentOverride", {"userAgent": self.user_agent})
         except Exception:
             await self.__aexit__(None, None, None)

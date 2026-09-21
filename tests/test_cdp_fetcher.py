@@ -333,3 +333,13 @@ async def test_cdp_fetcher_records_every_redirect_hop(run_fake_browser):
     assert result.page.status_code == 200
     # the body belongs to the last hop only: asking once is enough
     assert len([c for c in browser.commands if c["method"] == "Network.getResponseBody"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_cdp_fetcher_does_not_override_a_user_agent_already_applied_at_launch(run_fake_browser):
+    endpoint, browser = await run_fake_browser()
+    fetcher = CdpBrowserFetcher(endpoint_url=endpoint, user_agent="crau/test")
+    fetcher.user_agent_applied_at_launch = True
+    async with fetcher:
+        pass
+    assert not [c for c in browser.commands if c["method"] == "Network.setUserAgentOverride"]

@@ -2,15 +2,39 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
+import re
 import shutil
 import socket
+import sys
 import tempfile
 import urllib.request
 from pathlib import Path
 from typing import Any
 
 from crau.fetchers.cdp import HEADLESS_UA_TOKEN, CdpBrowserFetcher
+
+logger = logging.getLogger("crau")
+
+# Chrome's reduced User-Agent freezes everything but the major version; these are the per-platform constants
+_UA_PLATFORMS = {
+    "darwin": "Macintosh; Intel Mac OS X 10_15_7",
+    "win32": "Windows NT 10.0; Win64; x64",
+}
+_UA_DEFAULT_PLATFORM = "X11; Linux x86_64"
+
+
+def _reduced_user_agent(version_text: str) -> str | None:
+    """User-Agent a regular (non-headless) Chrome of this version sends, or None when the version is unknown."""
+    match = re.search(r"(\d+)\.\d+\.\d+\.\d+", version_text)
+    if not match:
+        return None
+    platform = _UA_PLATFORMS.get(sys.platform, _UA_DEFAULT_PLATFORM)
+    return (
+        f"Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) "
+        f"Chrome/{match.group(1)}.0.0.0 Safari/537.36"
+    )
 
 
 def _find_free_port() -> int:
@@ -75,6 +99,22 @@ class ChromiumFetcher(CdpBrowserFetcher):
             "or specify --binary-path."
         )
 
+    async def _native_version(self, binary: str, env: dict[str, str]) -> str:
+        """Output of `<binary> --version` ('' when it cannot be obtained)."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                binary,
+                "--version",
+                env=env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            output, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            return output.decode("utf-8", errors="replace").strip()
+        except Exception as error:
+            logger.debug("Could not read the version of %s: %s", binary, error)
+            return ""
+
     async def _wait_until_ready(self, timeout: float | None = None) -> tuple[str, str]:
         """Poll /json/version until the browser answers; returns (websocket URL, native User-Agent)."""
         url = f"http://{self.host}:{self.port}/json/version"
@@ -102,8 +142,8 @@ class ChromiumFetcher(CdpBrowserFetcher):
     async def _connect_cdp(self) -> None:
         ws_url, native_user_agent = await self._wait_until_ready()
         self.endpoint_url = ws_url
-        # Headless Chromium advertises "HeadlessChrome/..." which anti-bot systems key on;
-        # use the browser's own UA of the same version without the token
+        # only reached when the version was unknown at launch (see __aenter__): fall back to a protocol
+        # override with the browser's own UA minus the token, at the cost of the client hints
         if not self.user_agent and HEADLESS_UA_TOKEN in native_user_agent:
             self.user_agent = native_user_agent.replace(HEADLESS_UA_TOKEN, "Chrome")
         await super().__aenter__()
@@ -130,8 +170,13 @@ class ChromiumFetcher(CdpBrowserFetcher):
             f"--window-size={self.window_size[0]},{self.window_size[1]}",
             f"--user-data-dir={self.user_data_dir}",
         ]
+        # Headless Chromium advertises "HeadlessChrome/..." which anti-bot systems key on. The flag keeps the
+        # header, navigator.userAgent and the sec-ch-ua client hints coherent; a CDP override does not.
+        if not self.user_agent:
+            self.user_agent = _reduced_user_agent(await self._native_version(resolved_bin, env))
         if self.user_agent:
             cmd.append(f"--user-agent={self.user_agent}")
+            self.user_agent_applied_at_launch = True
         cmd.extend(self.extra_args)
         cmd.append("about:blank")
 
