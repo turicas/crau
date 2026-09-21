@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from crau.fetchers.base import Fetcher, NetworkActivity, settle_page
+from crau.fetchers.base import Fetcher, NetworkActivity, browser_log_tail, create_browser_log, settle_page
 from crau.models import CrawlResult, NetworkTransaction, Page, RawRequest, RawResponse
 
 try:
@@ -109,6 +109,7 @@ class FirefoxFetcher(Fetcher):
             self._is_temp_profile = True
 
         self._proc: asyncio.subprocess.Process | None = None
+        self._log_path: Path | None = None
         self._fetch_lock = asyncio.Lock()
         self._ws: Any = None
         self._msg_id = 0
@@ -161,6 +162,7 @@ class FirefoxFetcher(Fetcher):
             if self._proc and self._proc.returncode is not None:
                 raise RuntimeError(
                     f"Firefox exited prematurely with code {self._proc.returncode}"
+                    + browser_log_tail(self._log_path)
                 )
             try:
                 reader, writer = await asyncio.wait_for(
@@ -173,7 +175,10 @@ class FirefoxFetcher(Fetcher):
             except Exception:
                 await asyncio.sleep(0.1)
 
-        raise TimeoutError(f"Firefox BiDi did not open port {self.port} within {timeout}s")
+        raise TimeoutError(
+            f"Firefox BiDi did not open port {self.port} within {timeout}s"
+            + browser_log_tail(self._log_path)
+        )
 
     async def _reader_loop(self) -> None:
         async for raw_message in self._ws:
@@ -284,12 +289,15 @@ class FirefoxFetcher(Fetcher):
         ]
         cmd.extend(self.extra_args)
 
+        self._log_path = create_browser_log("firefox")
+        log = self._log_path.open("wb")
         self._proc = await asyncio.create_subprocess_exec(
             *cmd,
             env=env,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stdout=log,
+            stderr=log,
         )
+        log.close()
 
         try:
             await self._wait_until_ready()
@@ -481,6 +489,10 @@ class FirefoxFetcher(Fetcher):
                 pass
             finally:
                 self._proc = None
+
+        if self._log_path is not None:
+            self._log_path.unlink(missing_ok=True)
+            self._log_path = None
 
         if self._is_temp_profile and self.user_data_dir.exists():
             shutil.rmtree(self.user_data_dir, ignore_errors=True)

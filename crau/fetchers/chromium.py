@@ -13,6 +13,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from crau.fetchers.base import browser_log_tail, create_browser_log
 from crau.fetchers.cdp import HEADLESS_UA_TOKEN, CdpBrowserFetcher
 
 logger = logging.getLogger("crau")
@@ -72,6 +73,7 @@ class ChromiumFetcher(CdpBrowserFetcher):
             self._is_temp_profile = True
 
         self._proc: asyncio.subprocess.Process | None = None
+        self._log_path: Path | None = None
         super().__init__(
             endpoint_url=f"ws://{self.host}:{self.port}",
             timeout=timeout,
@@ -125,6 +127,7 @@ class ChromiumFetcher(CdpBrowserFetcher):
             if self._proc and self._proc.returncode is not None:
                 raise RuntimeError(
                     f"Chromium exited prematurely with code {self._proc.returncode}"
+                    + browser_log_tail(self._log_path)
                 )
             try:
                 req = urllib.request.Request(url, headers={"User-Agent": "crau"})
@@ -137,7 +140,10 @@ class ChromiumFetcher(CdpBrowserFetcher):
             except Exception:
                 await asyncio.sleep(0.1)
 
-        raise TimeoutError(f"Chromium did not become ready on port {self.port} within {timeout}s")
+        raise TimeoutError(
+            f"Chromium did not become ready on port {self.port} within {timeout}s"
+            + browser_log_tail(self._log_path)
+        )
 
     async def _connect_cdp(self) -> None:
         ws_url, native_user_agent = await self._wait_until_ready()
@@ -180,12 +186,15 @@ class ChromiumFetcher(CdpBrowserFetcher):
         cmd.extend(self.extra_args)
         cmd.append("about:blank")
 
+        self._log_path = create_browser_log("chromium")
+        log = self._log_path.open("wb")
         self._proc = await asyncio.create_subprocess_exec(
             *cmd,
             env=env,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stdout=log,
+            stderr=log,
         )
+        log.close()
 
         try:
             await self._connect_cdp()
@@ -207,6 +216,10 @@ class ChromiumFetcher(CdpBrowserFetcher):
                 pass
             finally:
                 self._proc = None
+
+        if self._log_path is not None:
+            self._log_path.unlink(missing_ok=True)
+            self._log_path = None
 
         if self._is_temp_profile and self.user_data_dir.exists():
             shutil.rmtree(self.user_data_dir, ignore_errors=True)

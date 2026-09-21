@@ -6,6 +6,7 @@ import socket
 from pathlib import Path
 from typing import Any
 
+from crau.fetchers.base import browser_log_tail, create_browser_log
 from crau.fetchers.cdp import CdpBrowserFetcher
 
 
@@ -31,6 +32,7 @@ class LightpandaFetcher(CdpBrowserFetcher):
         self.host = host
         self.port = port or _find_free_port()
         self._proc: asyncio.subprocess.Process | None = None
+        self._log_path: Path | None = None
 
         endpoint_url = f"ws://{self.host}:{self.port}"
         super().__init__(endpoint_url=endpoint_url, timeout=timeout, user_agent=user_agent, **settle_options)
@@ -53,6 +55,7 @@ class LightpandaFetcher(CdpBrowserFetcher):
             if self._proc and self._proc.returncode is not None:
                 raise RuntimeError(
                     f"Lightpanda process exited prematurely with code {self._proc.returncode}"
+                    + browser_log_tail(self._log_path)
                 )
             try:
                 reader, writer = await asyncio.wait_for(
@@ -64,16 +67,22 @@ class LightpandaFetcher(CdpBrowserFetcher):
                 return
             except (ConnectionRefusedError, OSError, asyncio.TimeoutError):
                 await asyncio.sleep(0.05)
-        raise TimeoutError(f"Lightpanda daemon did not become ready on port {self.port} within {timeout}s")
+        raise TimeoutError(
+            f"Lightpanda daemon did not become ready on port {self.port} within {timeout}s"
+            + browser_log_tail(self._log_path)
+        )
 
     async def __aenter__(self) -> "LightpandaFetcher":
         resolved_bin = self._resolve_binary()
         cmd = [resolved_bin, "serve", "--host", self.host, "--port", str(self.port)]
+        self._log_path = create_browser_log("lightpanda")
+        log = self._log_path.open("wb")
         self._proc = await asyncio.create_subprocess_exec(
             *cmd,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stdout=log,
+            stderr=log,
         )
+        log.close()
         try:
             await self._wait_until_ready()
             await super().__aenter__()
@@ -95,6 +104,10 @@ class LightpandaFetcher(CdpBrowserFetcher):
                 pass
             finally:
                 self._proc = None
+
+        if self._log_path is not None:
+            self._log_path.unlink(missing_ok=True)
+            self._log_path = None
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         try:

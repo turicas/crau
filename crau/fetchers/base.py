@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import tempfile
 import time
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Protocol
 
 from crau.models import CrawlResult
@@ -92,3 +95,22 @@ async def settle_page(
             break
         await asyncio.sleep(poll)
     return {"settle_seconds": time.perf_counter() - started, "scroll_steps": scrolls, "pending": len(activity.pending)}
+
+
+def create_browser_log(prefix: str) -> Path:
+    """Temporary file that receives the browser's stdout and stderr.
+
+    Discarding them hides the only explanation a browser gives when it fails to start
+    (missing shared library, unusable profile, port already taken).
+    """
+    handle, name = tempfile.mkstemp(prefix=f"crau-{prefix}-", suffix=".log")
+    os.close(handle)
+    return Path(name)
+
+
+def browser_log_tail(log_path: Path | None, limit: int = 2000) -> str:
+    """Last `limit` characters of the browser log, formatted to be appended to an error message."""
+    if log_path is None or not log_path.exists():
+        return ""
+    text = log_path.read_text(encoding="utf-8", errors="replace").strip()
+    return f". Browser output:\n{text[-limit:]}" if text else ""
