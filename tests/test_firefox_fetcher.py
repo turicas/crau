@@ -15,7 +15,7 @@ def test_firefox_fetcher_missing_binary():
 
 
 @pytest.mark.asyncio
-async def test_firefox_fetcher_prepares_user_js_and_profile(tmp_path):
+async def test_firefox_fetcher_prepares_profile_without_remote_preferences(tmp_path):
     custom_profile = tmp_path / "custom-firefox-profile"
 
     fake_proc = MagicMock()
@@ -37,13 +37,9 @@ async def test_firefox_fetcher_prepares_user_js_and_profile(tmp_path):
                         assert fetcher.user_data_dir == custom_profile
                         assert not fetcher._is_temp_profile
 
-                    # user.js must exist and contain the 3 remote preferences
-                    user_js = custom_profile / "user.js"
-                    assert user_js.exists()
-                    content = user_js.read_text()
-                    assert 'user_pref("remote.active-protocols", 3);' in content
-                    assert 'user_pref("devtools.debugger.remote-enabled", true);' in content
-                    assert 'user_pref("devtools.debugger.prompt-connection", false);' in content
+                    # BiDi needs no preference: --remote-debugging-port is enough (checked on ESR 140 and 156)
+                    assert custom_profile.is_dir()
+                    assert not (custom_profile / "user.js").exists()
 
                     cmd_args = mock_exec.call_args[0]
                     assert "-profile" in cmd_args
@@ -144,9 +140,13 @@ async def test_firefox_fetcher_bidi_session_and_real_status():
 
 
 def test_firefox_user_agent_goes_into_profile_prefs(tmp_path):
+    (tmp_path / "user.js").write_text('user_pref("browser.startup.page", 0);\n')
     fetcher = FirefoxFetcher(binary_path="/bin/true", user_data_dir=tmp_path, user_agent="crau/ff")
     fetcher._prepare_profile()
-    assert 'user_pref("general.useragent.override", "crau/ff");' in (tmp_path / "user.js").read_text()
+    fetcher._prepare_profile()  # reusing a profile must not pile up duplicates
+    content = (tmp_path / "user.js").read_text()
+    assert content.count('user_pref("general.useragent.override", "crau/ff");') == 1
+    assert 'user_pref("browser.startup.page", 0);' in content
 
 
 class RedirectingBidiBrowser(FakeBidiBrowser):

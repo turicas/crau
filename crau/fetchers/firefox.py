@@ -53,7 +53,7 @@ def _find_free_port() -> int:
 
 
 class FirefoxFetcher(Fetcher):
-    """Headless Firefox fetcher communicating via W3C WebDriver BiDi (Firefox >= 129 has no CDP).
+    """Headless Firefox fetcher communicating via W3C WebDriver BiDi (CDP was removed in Firefox 141).
 
     Response bodies come from a ``network.addDataCollector`` registered on the tab and
     ``network.getData`` per request, so every request the page made (document, assets,
@@ -135,22 +135,19 @@ class FirefoxFetcher(Fetcher):
         )
 
     def _prepare_profile(self) -> None:
+        """Create the profile directory; the only preference written is the User-Agent override, when asked.
+
+        WebDriver BiDi needs no preference: ``--remote-debugging-port`` alone opens it (checked on ESR 140 and
+        on 156). ``remote.active-protocols`` used to switch CDP on, and CDP was removed in Firefox 141.
+        """
         self.user_data_dir.mkdir(parents=True, exist_ok=True)
+        if not self.user_agent:
+            return
         user_js = self.user_data_dir / "user.js"
-        # Always ensure mandatory remote debugging preferences exist
-        prefs = (
-            'user_pref("remote.active-protocols", 3);\n'
-            'user_pref("devtools.debugger.remote-enabled", true);\n'
-            'user_pref("devtools.debugger.prompt-connection", false);\n'
-        )
-        if self.user_agent:
-            prefs += f'user_pref("general.useragent.override", {json.dumps(self.user_agent)});\n'
-        if user_js.exists():
-            current_content = user_js.read_text(encoding="utf-8")
-            if "remote.active-protocols" not in current_content:
-                user_js.write_text(current_content + "\n" + prefs, encoding="utf-8")
-        else:
-            user_js.write_text(prefs, encoding="utf-8")
+        pref = f'user_pref("general.useragent.override", {json.dumps(self.user_agent)});\n'
+        current_content = user_js.read_text(encoding="utf-8") if user_js.exists() else ""
+        kept = [line for line in current_content.splitlines() if "general.useragent.override" not in line]
+        user_js.write_text("".join(line + "\n" for line in kept) + pref, encoding="utf-8")
 
     async def _wait_until_ready(self, timeout: float | None = None) -> None:
         # a cold start (binary not in the page cache) can take >10s
