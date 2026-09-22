@@ -4,8 +4,8 @@ import json
 
 import pytest
 import pytest_asyncio
-import websockets
 
+from crau.browser.errors import BrowserError
 from crau.fetchers.cdp import CdpBrowserFetcher
 
 RENDERED_HTML = "<html><body>Rendered by CDP</body></html>"
@@ -71,7 +71,7 @@ class FakeBrowser:
                     self.scrolls += 1
                     if self.scrolls == 1:
                         await self._emit_request(websocket, session_id, "lazy", "lazy.png", "image/png", PNG_BYTES)
-                    reply["result"] = {"result": {"type": "string", "value": json.dumps({"moved": self.scrolls == 1, "height": 900})}}
+                    reply["result"] = {"result": {"type": "object", "value": {"moved": self.scrolls == 1, "height": 900}}}
                 else:
                     reply["result"] = {"result": {"type": "string", "value": RENDERED_HTML}}
             else:
@@ -161,28 +161,18 @@ class FakeBrowser:
 
 
 @pytest_asyncio.fixture
-async def run_fake_browser():
-    servers = []
-
+async def run_fake_browser(serve_fake_browser):
     async def _start(browser: FakeBrowser | None = None):
         browser = browser or FakeBrowser()
-        server = await websockets.serve(browser.handler, "127.0.0.1", 0)
-        port = server.sockets[0].getsockname()[1]
-        servers.append(server)
-        return f"ws://127.0.0.1:{port}", browser
+        return await serve_fake_browser(browser), browser
 
-    yield _start
-
-    for server in servers:
-        server.close()
-        await server.wait_closed()
+    return _start
 
 
 @pytest.mark.asyncio
 async def test_cdp_fetcher_attaches_to_page_target_and_captures_traffic(run_fake_browser):
     endpoint, browser = await run_fake_browser()
     async with CdpBrowserFetcher(endpoint_url=endpoint, settle_timeout=5, min_settle_time=0.5, idle_time=0.2) as fetcher:
-        assert fetcher._session_id == "S-T1"
         result = await fetcher.fetch("https://example.com/")
 
     # page-level commands must go through the attached session, never the browser endpoint
@@ -216,16 +206,17 @@ async def test_cdp_fetcher_attaches_to_page_target_and_captures_traffic(run_fake
 @pytest.mark.asyncio
 async def test_cdp_fetcher_creates_a_target_when_no_free_page_exists(run_fake_browser):
     endpoint, browser = await run_fake_browser(FakeBrowser(page_targets=[]))
-    async with CdpBrowserFetcher(endpoint_url=endpoint) as fetcher:
-        assert fetcher._session_id == "S-T1"
+    async with CdpBrowserFetcher(endpoint_url=endpoint, settle_timeout=0) as fetcher:
+        result = await fetcher.fetch("https://example.com/")
     assert any(c["method"] == "Target.createTarget" for c in browser.commands)
+    assert result.page.status_code == 200
 
 
 @pytest.mark.asyncio
 async def test_cdp_fetcher_reports_browser_errors_instead_of_hanging(run_fake_browser):
     endpoint, browser = await run_fake_browser()
     async with CdpBrowserFetcher(endpoint_url=endpoint, timeout=2) as fetcher:
-        with pytest.raises(RuntimeError, match="wasn't found"):
+        with pytest.raises(BrowserError, match="wasn't found"):
             await fetcher.send("Page.navigate", {"url": "https://example.com/"}, session=False)
 
 
@@ -300,12 +291,13 @@ class RedirectingBrowser(FakeBrowser):
             "remoteIPAddress": "203.0.113.7",
             "remotePort": 80,
         }
+        navigation = {"requestId": "doc", "loaderId": "doc", "type": "Document", "frameId": "T1"}
         final = {"url": final_url, "status": 200, "statusText": "OK", "headers": {"Content-Type": "text/html"}, "protocol": "http/1.1"}
         for method, params in [
-            ("Network.requestWillBeSent", {"requestId": "doc", "request": {"url": url, "method": "GET", "headers": {}}}),
+            ("Network.requestWillBeSent", {**navigation, "request": {"url": url, "method": "GET", "headers": {}}}),
             (
                 "Network.requestWillBeSent",
-                {"requestId": "doc", "request": {"url": final_url, "method": "GET", "headers": {}}, "redirectResponse": redirect},
+                {**navigation, "request": {"url": final_url, "method": "GET", "headers": {}}, "redirectResponse": redirect},
             ),
             ("Network.responseReceived", {"requestId": "doc", "response": final}),
             ("Network.loadingFinished", {"requestId": "doc"}),
@@ -333,13 +325,3 @@ async def test_cdp_fetcher_records_every_redirect_hop(run_fake_browser):
     assert result.page.status_code == 200
     # the body belongs to the last hop only: asking once is enough
     assert len([c for c in browser.commands if c["method"] == "Network.getResponseBody"]) == 1
-
-
-@pytest.mark.asyncio
-async def test_cdp_fetcher_does_not_override_a_user_agent_already_applied_at_launch(run_fake_browser):
-    endpoint, browser = await run_fake_browser()
-    fetcher = CdpBrowserFetcher(endpoint_url=endpoint, user_agent="crau/test")
-    fetcher.user_agent_applied_at_launch = True
-    async with fetcher:
-        pass
-    assert not [c for c in browser.commands if c["method"] == "Network.setUserAgentOverride"]

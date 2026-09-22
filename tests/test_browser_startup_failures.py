@@ -4,6 +4,7 @@ import stat
 
 import pytest
 
+from crau.browser.errors import LaunchError
 from crau.fetchers.chromium import ChromiumFetcher
 from crau.fetchers.firefox import FirefoxFetcher
 from crau.fetchers.lightpanda import LightpandaFetcher
@@ -19,10 +20,13 @@ def broken_browser(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fetcher_class", [ChromiumFetcher, FirefoxFetcher, LightpandaFetcher])
-async def test_startup_failure_reports_the_browser_output(fetcher_class, broken_browser):
+async def test_startup_failure_reports_the_browser_output(fetcher_class, broken_browser, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     fetcher = fetcher_class(binary_path=str(broken_browser), timeout=5)
-    with pytest.raises(RuntimeError, match="exited prematurely with code 127") as error:
+    with pytest.raises(LaunchError, match="exited with code 127") as error:
         async with fetcher:
             pass
     assert "libnss3.so" in str(error.value)
-    assert fetcher._log_path is None  # the log file does not outlive the fetcher
+    # neither the log nor the temporary profile outlives the fetcher
+    assert not list((tmp_path / "cache").rglob("browser.log"))
+    assert not list((tmp_path / "cache" / "crau").glob("*-*"))

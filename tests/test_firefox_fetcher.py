@@ -1,50 +1,29 @@
 import json
 
-import websockets
-from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
+from crau.browser.errors import LaunchError
 from crau.fetchers.firefox import FirefoxFetcher
 
 
-def test_firefox_fetcher_missing_binary():
-    with patch("shutil.which", return_value=None):
-        fetcher = FirefoxFetcher(binary_path="nonexistent-firefox")
-        with pytest.raises(FileNotFoundError, match="Firefox binary not found"):
-            fetcher._resolve_binary()
-
-
 @pytest.mark.asyncio
-async def test_firefox_fetcher_prepares_profile_without_remote_preferences(tmp_path):
-    custom_profile = tmp_path / "custom-firefox-profile"
+async def test_firefox_fetcher_missing_binary():
+    with pytest.raises(LaunchError, match="nonexistent-firefox"):
+        async with FirefoxFetcher(binary_path="nonexistent-firefox"):
+            pass
 
-    fake_proc = MagicMock()
-    fake_proc.poll.return_value = None
-    fake_proc.terminate = MagicMock()
-    fake_proc.kill = MagicMock()
 
-    async def fake_wait():
-        return 0
-
-    fake_proc.wait = fake_wait
-
-    with patch("shutil.which", return_value="/usr/bin/firefox-esr"):
-        with patch("asyncio.create_subprocess_exec", return_value=fake_proc) as mock_exec:
-            with patch.object(FirefoxFetcher, "_wait_until_ready", new_callable=AsyncMock):
-                with patch.object(FirefoxFetcher, "_init_bidi_session", new_callable=AsyncMock):
-                    fetcher = FirefoxFetcher(user_data_dir=custom_profile, port=9223)
-                    async with fetcher:
-                        assert fetcher.user_data_dir == custom_profile
-                        assert not fetcher._is_temp_profile
-
-                    # BiDi needs no preference: --remote-debugging-port is enough (checked on ESR 140 and 156)
-                    assert custom_profile.is_dir()
-                    assert not (custom_profile / "user.js").exists()
-
-                    cmd_args = mock_exec.call_args[0]
-                    assert "-profile" in cmd_args
-                    assert str(custom_profile) in cmd_args
-                    fake_proc.terminate.assert_called_once()
+def test_firefox_fetcher_passes_its_options_to_the_browser(tmp_path):
+    fetcher = FirefoxFetcher(
+        binary_path="/opt/firefox/firefox", user_data_dir=tmp_path / "profile", port=9223, window_size=(800, 600),
+        user_agent="crau/ff", extra_args=["--safe-mode"],
+    )  # fmt: skip
+    options = fetcher._create_browser().options
+    assert (options.browser, str(options.binary), options.profile) == ("firefox", "/opt/firefox/firefox", tmp_path / "profile")
+    assert (options.port, options.viewport, options.user_agent, options.extra_args) == (
+        9223, (800, 600), "crau/ff", ["--safe-mode"],
+    )  # fmt: skip
+    assert FirefoxFetcher().port is None  # no port is reserved beforehand: the browser picks one
 
 
 class FakeBidiBrowser:
@@ -66,7 +45,6 @@ class FakeBidiBrowser:
             elif method == "browsingContext.create":
                 reply["result"] = {"context": "ctx-1"}
             elif method == "network.addDataCollector":
-                assert data["params"]["contexts"] == ["ctx-1"]
                 reply["result"] = {"collector": "col-1"}
             elif method == "network.getData":
                 assert data["params"]["collector"] == "col-1" and data["params"]["disown"] is True
@@ -82,36 +60,28 @@ class FakeBidiBrowser:
                 img_url = url + "/pic.png"
                 img_request = {"request": "req-img", "url": img_url, "method": "GET", "headers": [], "timings": {}}
                 for event_method, params in [
-                    ("network.beforeRequestSent", {"navigation": "nav-1", "request": doc_request}),
-                    ("network.responseCompleted", {"navigation": "nav-1", "request": doc_request, "response": {"url": url, "status": 404, "statusText": "Not Found", "protocol": "http/1.1", "headers": headers}}),
-                    ("network.beforeRequestSent", {"navigation": None, "request": img_request}),
-                    ("network.responseCompleted", {"navigation": None, "request": img_request, "response": {"url": img_url, "status": 200, "statusText": "OK", "protocol": "h2", "headers": [{"name": "Content-Type", "value": {"type": "string", "value": "image/png"}}]}}),
+                    ("network.beforeRequestSent", {"context": "ctx-1", "navigation": "nav-1", "request": doc_request}),
+                    ("network.responseCompleted", {"context": "ctx-1", "navigation": "nav-1", "request": doc_request, "response": {"url": url, "status": 404, "statusText": "Not Found", "protocol": "http/1.1", "headers": headers}}),
+                    ("network.beforeRequestSent", {"context": "ctx-1", "navigation": None, "request": img_request}),
+                    ("network.responseCompleted", {"context": "ctx-1", "navigation": None, "request": img_request, "response": {"url": img_url, "status": 200, "statusText": "OK", "protocol": "h2", "headers": [{"name": "Content-Type", "value": {"type": "string", "value": "image/png"}}]}}),
                 ]:
                     await websocket.send(json.dumps({"type": "event", "method": event_method, "params": params}))
             elif method == "script.evaluate":
-                assert "serializationOptions" in data["params"]
+                assert data["params"]["target"] == {"context": "ctx-1"}
                 if "scrollBy" in data["params"]["expression"]:
-                    reply["result"] = {"type": "success", "result": {"type": "string", "value": json.dumps({"moved": False, "height": 500})}}
+                    step = [["moved", {"type": "boolean", "value": False}], ["height", {"type": "number", "value": 500}]]
+                    reply["result"] = {"type": "success", "result": {"type": "object", "value": step}}
                 else:
                     reply["result"] = {"type": "success", "result": {"type": "string", "value": "<html>rendered</html>"}}
             await websocket.send(json.dumps(reply))
 
 
 @pytest.mark.asyncio
-async def test_firefox_fetcher_bidi_session_and_real_status():
+async def test_firefox_fetcher_bidi_session_and_real_status(serve_fake_browser):
     browser = FakeBidiBrowser()
-    server = await websockets.serve(browser.handler, "127.0.0.1", 0)
-    port = server.sockets[0].getsockname()[1]
-    try:
-        fetcher = FirefoxFetcher(binary_path="/bin/true", port=port, settle_timeout=3, min_settle_time=0.3, idle_time=0.1)
-        await fetcher._init_bidi_session()
-        try:
-            result = await fetcher.fetch("http://example.com/missing")
-        finally:
-            await fetcher._stop_process()
-    finally:
-        server.close()
-        await server.wait_closed()
+    endpoint = await serve_fake_browser(browser) + "/session"
+    async with FirefoxFetcher(endpoint_url=endpoint, settle_timeout=3, min_settle_time=0.3, idle_time=0.1) as fetcher:
+        result = await fetcher.fetch("http://example.com/missing")
 
     methods = [c["method"] for c in browser.commands]
     assert methods.index("session.subscribe") < methods.index("browsingContext.create")
@@ -123,6 +93,7 @@ async def test_firefox_fetcher_bidi_session_and_real_status():
     assert "Navigator.prototype" in preload["params"]["functionDeclaration"]
 
     assert methods.index("network.addDataCollector") > methods.index("browsingContext.create")
+    assert methods[-1] == "session.end"  # Firefox keeps a session after a disconnect: it must be ended explicitly
 
     document, image = result.transactions
     assert document.response.status_code == 404
@@ -141,14 +112,19 @@ async def test_firefox_fetcher_bidi_session_and_real_status():
     assert result.page.content == "<html>rendered</html>"
 
 
-def test_firefox_user_agent_goes_into_profile_prefs(tmp_path):
+def test_firefox_user_agent_goes_into_profile_prefs_once(tmp_path):
+    from crau.browser.launch import BrowserProcess
+
     (tmp_path / "user.js").write_text('user_pref("browser.startup.page", 0);\n')
-    fetcher = FirefoxFetcher(binary_path="/bin/true", user_data_dir=tmp_path, user_agent="crau/ff")
-    fetcher._prepare_profile()
-    fetcher._prepare_profile()  # reusing a profile must not pile up duplicates
+    options = FirefoxFetcher(user_data_dir=tmp_path, user_agent="crau/ff")._create_browser().options
+    for _ in range(2):  # reusing a profile must not pile up duplicates
+        process = BrowserProcess(options)
+        process.profile = tmp_path
+        process._prepare_profile()
     content = (tmp_path / "user.js").read_text()
     assert content.count('user_pref("general.useragent.override", "crau/ff");') == 1
     assert 'user_pref("browser.startup.page", 0);' in content
+    assert "remote.active-protocols" not in content  # BiDi needs no preference
 
 
 class RedirectingBidiBrowser(FakeBidiBrowser):
@@ -177,10 +153,10 @@ class RedirectingBidiBrowser(FakeBidiBrowser):
                 found = {"url": url, "status": 302, "statusText": "Found", "protocol": "http/1.1", "headers": location}
                 ok = {"url": url + "final", "status": 200, "statusText": "OK", "protocol": "http/1.1", "headers": []}
                 for event_method, params in [
-                    ("network.beforeRequestSent", {"navigation": "nav-1", "redirectCount": 0, "request": first}),
-                    ("network.responseCompleted", {"navigation": "nav-1", "redirectCount": 0, "request": first, "response": found}),
-                    ("network.beforeRequestSent", {"navigation": "nav-1", "redirectCount": 1, "request": second}),
-                    ("network.responseCompleted", {"navigation": "nav-1", "redirectCount": 1, "request": second, "response": ok}),
+                    ("network.beforeRequestSent", {"context": "ctx-1", "navigation": "nav-1", "redirectCount": 0, "request": first}),
+                    ("network.responseCompleted", {"context": "ctx-1", "navigation": "nav-1", "redirectCount": 0, "request": first, "response": found}),
+                    ("network.beforeRequestSent", {"context": "ctx-1", "navigation": "nav-1", "redirectCount": 1, "request": second}),
+                    ("network.responseCompleted", {"context": "ctx-1", "navigation": "nav-1", "redirectCount": 1, "request": second, "response": ok}),
                 ]:
                     await websocket.send(json.dumps({"type": "event", "method": event_method, "params": params}))
             elif method == "script.evaluate":
@@ -189,20 +165,11 @@ class RedirectingBidiBrowser(FakeBidiBrowser):
 
 
 @pytest.mark.asyncio
-async def test_firefox_fetcher_records_every_redirect_hop():
+async def test_firefox_fetcher_records_every_redirect_hop(serve_fake_browser):
     browser = RedirectingBidiBrowser()
-    server = await websockets.serve(browser.handler, "127.0.0.1", 0)
-    port = server.sockets[0].getsockname()[1]
-    try:
-        fetcher = FirefoxFetcher(binary_path="/bin/true", port=port, settle_timeout=0)
-        await fetcher._init_bidi_session()
-        try:
-            result = await fetcher.fetch("http://example.com/")
-        finally:
-            await fetcher._stop_process()
-    finally:
-        server.close()
-        await server.wait_closed()
+    endpoint = await serve_fake_browser(browser) + "/session"
+    async with FirefoxFetcher(endpoint_url=endpoint, settle_timeout=0) as fetcher:
+        result = await fetcher.fetch("http://example.com/")
 
     redirect, final = result.transactions
     assert (redirect.request.url, redirect.response.status_code) == ("http://example.com/", 302)
@@ -249,8 +216,8 @@ class PostingBidiBrowser(FakeBidiBrowser):
                 request = {"request": "req-post", "url": url, "method": "POST", "headers": [], "bodySize": 11, "timings": {}}
                 response = {"url": url, "status": 200, "statusText": "OK", "protocol": "http/1.1", "headers": []}
                 for event_method, params in [
-                    ("network.beforeRequestSent", {"navigation": "nav-1", "request": request}),
-                    ("network.responseCompleted", {"navigation": "nav-1", "request": request, "response": response}),
+                    ("network.beforeRequestSent", {"context": "ctx-1", "navigation": "nav-1", "request": request}),
+                    ("network.responseCompleted", {"context": "ctx-1", "navigation": "nav-1", "request": request, "response": response}),
                 ]:
                     await websocket.send(json.dumps({"type": "event", "method": event_method, "params": params}))
             elif method == "script.evaluate":
@@ -260,20 +227,13 @@ class PostingBidiBrowser(FakeBidiBrowser):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("request_collector, expected_body", [(True, b"field=value"), (False, b"")])
-async def test_firefox_fetcher_captures_request_bodies_when_the_browser_can(request_collector, expected_body):
+async def test_firefox_fetcher_captures_request_bodies_when_the_browser_can(
+    serve_fake_browser, request_collector, expected_body
+):
     browser = PostingBidiBrowser(request_collector=request_collector)
-    server = await websockets.serve(browser.handler, "127.0.0.1", 0)
-    port = server.sockets[0].getsockname()[1]
-    try:
-        fetcher = FirefoxFetcher(binary_path="/bin/true", port=port, settle_timeout=0)
-        await fetcher._init_bidi_session()
-        try:
-            result = await fetcher.fetch("http://example.com/submit")
-        finally:
-            await fetcher._stop_process()
-    finally:
-        server.close()
-        await server.wait_closed()
+    endpoint = await serve_fake_browser(browser) + "/session"
+    async with FirefoxFetcher(endpoint_url=endpoint, settle_timeout=0) as fetcher:
+        result = await fetcher.fetch("http://example.com/submit")
 
     (transaction,) = result.transactions
     assert transaction.request.method == "POST"
