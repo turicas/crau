@@ -16,17 +16,27 @@ from pathlib import Path
 from typing import Sequence
 from urllib.parse import quote, urljoin, urlparse
 
-from tqdm import tqdm
-from warcio.statusandheaders import StatusAndHeaders
-from warcio.warcwriter import WARCWriter
-
-from crau.cache.sqlite import SqliteCacheBackend
-from crau.cache.warc import WarcCacheBackend
-from crau.crawler import Crawler
-from crau.io import archive_files
-from crau.pipeline import ItemPipeline
-from crau.utils import HTTP_STATUS_CODES, WarcReader, get_urls_from_file
 from crau.version import __version__
+
+# The archiving commands need third-party packages (`pip install 'crau[archive]'`); everything else
+# must keep working without them, so a failed import is remembered and reported when one is used.
+try:
+    from tqdm import tqdm
+    from warcio.statusandheaders import StatusAndHeaders
+    from warcio.warcwriter import WARCWriter
+
+    from crau.cache.sqlite import SqliteCacheBackend
+    from crau.cache.warc import WarcCacheBackend
+    from crau.crawler import Crawler
+    from crau.io import archive_files
+    from crau.pipeline import ItemPipeline
+    from crau.utils import HTTP_STATUS_CODES, WarcReader, get_urls_from_file
+
+    MISSING_ARCHIVE_DEPENDENCY = None
+except ImportError as import_error:
+    MISSING_ARCHIVE_DEPENDENCY = import_error
+
+ARCHIVE_COMMANDS = ("archive", "list", "extract", "play", "pack")
 
 
 def run_command(command: str) -> int:
@@ -539,6 +549,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "play": handle_play,
         "pack": handle_pack,
     }
+
+    if args.command in ARCHIVE_COMMANDS and MISSING_ARCHIVE_DEPENDENCY is not None:
+        sys.stderr.write(
+            f"crau: error: '{args.command}' needs the archiving dependencies ({MISSING_ARCHIVE_DEPENDENCY}). "
+            "Install them with: pip install 'crau[archive]'\n"
+        )
+        return 1
 
     handler = handlers.get(args.command)
     if handler:

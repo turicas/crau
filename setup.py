@@ -8,19 +8,17 @@ setup(
     author_email="alvarojusten@gmail.com",
     url="https://github.com/turicas/crau/",
     python_requires=">=3.10",
-    install_requires=[
-        "h11",
-        "lxml",
-        "tqdm",
-        "warcio",
-    ],
+    # No hard dependency: browser automation runs on the standard library alone. Archiving and
+    # crawling (archive, list, extract, pack and the Crawler API) need the `archive` extra.
+    install_requires=[],
     # pywb (only needed by `crau play`) does not support Python >= 3.13 and pins old
-    # gevent/greenlet, so it is an extra instead of a hard dependency
+    # gevent/greenlet, so it is an extra of its own
     extras_require={
-        "play": ["pywb"],
-        "browser": ["websockets"],
-        "lightpanda": ["websockets", "lightpanda"],
-        "all": ["pywb", "websockets", "lightpanda"],
+        "archive": ["h11", "lxml", "tqdm", "warcio", "websockets"],
+        "play": ["h11", "lxml", "tqdm", "warcio", "pywb"],
+        "browser": ["h11", "lxml", "tqdm", "warcio", "websockets"],
+        "lightpanda": ["h11", "lxml", "tqdm", "warcio", "websockets", "lightpanda"],
+        "all": ["h11", "lxml", "tqdm", "warcio", "websockets", "pywb", "lightpanda"],
     },
     packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
     keywords="web crawling scraping archiving warc har",
