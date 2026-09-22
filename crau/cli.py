@@ -18,25 +18,32 @@ from urllib.parse import quote, urljoin, urlparse
 
 from crau.version import __version__
 
-# The archiving commands need third-party packages (`pip install 'crau[archive]'`); everything else
-# must keep working without them, so a failed import is remembered and reported when one is used.
-try:
-    from tqdm import tqdm
-    from warcio.statusandheaders import StatusAndHeaders
-    from warcio.warcwriter import WARCWriter
-
-    from crau.cache.sqlite import SqliteCacheBackend
-    from crau.cache.warc import WarcCacheBackend
-    from crau.crawler import Crawler
-    from crau.io import archive_files
-    from crau.pipeline import ItemPipeline
-    from crau.utils import HTTP_STATUS_CODES, WarcReader, get_urls_from_file
-
-    MISSING_ARCHIVE_DEPENDENCY = None
-except ImportError as import_error:
-    MISSING_ARCHIVE_DEPENDENCY = import_error
-
 ARCHIVE_COMMANDS = ("archive", "list", "extract", "play", "pack")
+
+
+def load_archive_modules() -> ImportError | None:
+    """Import what the archiving commands use into this module, the first time one of them runs.
+
+    They need third-party packages (`pip install 'crau[archive]'`) and cost ~250 ms to import; the
+    browser commands need neither, so `crau --help` and `crau page ...` must not pay for them.
+    Returns the ImportError when a dependency is missing.
+    """
+    global tqdm, StatusAndHeaders, WARCWriter, SqliteCacheBackend, WarcCacheBackend, Crawler
+    global archive_files, ItemPipeline, HTTP_STATUS_CODES, WarcReader, get_urls_from_file
+    try:
+        from tqdm import tqdm
+        from warcio.statusandheaders import StatusAndHeaders
+        from warcio.warcwriter import WARCWriter
+
+        from crau.cache.sqlite import SqliteCacheBackend
+        from crau.cache.warc import WarcCacheBackend
+        from crau.crawler import Crawler
+        from crau.io import archive_files
+        from crau.pipeline import ItemPipeline
+        from crau.utils import HTTP_STATUS_CODES, WarcReader, get_urls_from_file
+    except ImportError as error:
+        return error
+    return None
 
 
 def run_command(command: str) -> int:
@@ -292,6 +299,11 @@ def create_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Inner directory inside archive to retrieve files from",
     )
+
+    # 6. browser automation: browser, tab, page, har and search (standard library only)
+    from crau.browser.cli import add_commands
+
+    add_commands(subparsers)
 
     return parser
 
@@ -550,12 +562,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         "pack": handle_pack,
     }
 
-    if args.command in ARCHIVE_COMMANDS and MISSING_ARCHIVE_DEPENDENCY is not None:
-        sys.stderr.write(
-            f"crau: error: '{args.command}' needs the archiving dependencies ({MISSING_ARCHIVE_DEPENDENCY}). "
-            "Install them with: pip install 'crau[archive]'\n"
-        )
-        return 1
+    from crau.browser.cli import COMMANDS as BROWSER_COMMANDS
+
+    if args.command in BROWSER_COMMANDS:
+        from crau.browser.commands import run as run_browser_command
+
+        return run_browser_command(args)
+
+    if args.command in ARCHIVE_COMMANDS:
+        missing = load_archive_modules()
+        if missing is not None:
+            sys.stderr.write(
+                f"crau: error: '{args.command}' needs the archiving dependencies ({missing}). "
+                "Install them with: pip install 'crau[archive]'\n"
+            )
+            return 1
 
     handler = handlers.get(args.command)
     if handler:
