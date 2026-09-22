@@ -10,8 +10,8 @@ list of URLs.
 `pip install crau` installs no dependency at all: it is enough for everything that runs on
 the standard library, and the archiving commands tell you which extra is missing.
 
-- `crau[archive]`: archiving, crawling and the browser backends (h11, lxml, tqdm, warcio,
-  websockets)
+- `crau[archive]`: archiving and crawling, with any backend (h11, lxml, tqdm, warcio); the
+  browser backends themselves run on the standard library
 - `crau[play]`: the above plus [pywb](https://github.com/webrecorder/pywb) for `crau play`
   (pywb itself only supports Python 3.7-3.12)
 - `crau[lightpanda]`: the above plus the Lightpanda binary package

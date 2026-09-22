@@ -2,4 +2,3 @@ h11
 lxml
 tqdm
 warcio
-websockets

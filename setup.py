@@ -14,11 +14,11 @@ setup(
     # pywb (only needed by `crau play`) does not support Python >= 3.13 and pins old
     # gevent/greenlet, so it is an extra of its own
     extras_require={
-        "archive": ["h11", "lxml", "tqdm", "warcio", "websockets"],
+        "archive": ["h11", "lxml", "tqdm", "warcio"],
         "play": ["h11", "lxml", "tqdm", "warcio", "pywb"],
-        "browser": ["h11", "lxml", "tqdm", "warcio", "websockets"],
-        "lightpanda": ["h11", "lxml", "tqdm", "warcio", "websockets", "lightpanda"],
-        "all": ["h11", "lxml", "tqdm", "warcio", "websockets", "pywb", "lightpanda"],
+        "browser": ["h11", "lxml", "tqdm", "warcio"],  # kept as an alias of `archive`: browsers need nothing extra
+        "lightpanda": ["h11", "lxml", "tqdm", "warcio", "lightpanda"],
+        "all": ["h11", "lxml", "tqdm", "warcio", "pywb", "lightpanda"],
     },
     packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
     # the in-page JavaScript and the agent skill printed by `crau skill`

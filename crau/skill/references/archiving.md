@@ -1,6 +1,6 @@
 # Archiving and crawling
 
-Needs the archiving extras: `pip install 'crau[archive]'` (h11, lxml, tqdm, warcio, websockets). The browser commands
+Needs the archiving extras: `pip install 'crau[archive]'` (h11, lxml, tqdm, warcio). The browser commands
 described in `SKILL.md` do not.
 
 ## Archive pages to WARC or HAR
