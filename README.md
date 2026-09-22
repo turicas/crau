@@ -80,15 +80,20 @@ Available formats:
 
 ### Installing Browser Dependencies
 
-Browser engines are optional:
-- **Chromium / Chrome**: `apt install -y chromium` (Debian/Ubuntu) or use Google Chrome.
-- **Firefox**: `apt install -y firefox-esr` (Debian/Ubuntu) or Firefox.
-- **Lightpanda**: `pip install crau[lightpanda]`
+Browser engines are optional. `crau browser install chromium` (or `firefox`, `lightpanda`,
+`all`) installs them the right way for the distribution: apt on Debian, Chrome for Testing
+on Ubuntu (whose apt packages are snap stubs), Mozilla's APT repository for Firefox, apk on
+Alpine, or downloads into `~/.local` without root (`-n` prints the plan). `crau browser
+doctor` shows what was found.
+
 - **Custom Profile**: pass `--user-data-dir /path/to/profile` to persist cookies and sessions.
 
-Browsers are started as plain processes (no automation flags, writable `HOME`, and
-the `HeadlessChrome` token removed from Chromium's User-Agent) and driven afterwards
-over CDP or WebDriver BiDi, which keeps `navigator.webdriver === false`.
+The browser backends are built on `crau.browser` (see "Browser automation" below): browsers
+are started as plain processes on a port they pick themselves (no automation flags, writable
+`HOME`, no core dumps, `HeadlessChrome` hidden with a launch flag so the client hints stay
+coherent) and driven over CDP or WebDriver BiDi with `navigator.webdriver === false`. Every
+redirect hop, the headers really sent (cookies included), request bodies and response
+bodies are recorded.
 
 Everything the browser requests while showing a page is archived, not only what is
 in the HTML: after the load event crau keeps capturing for up to `--browser-settle`
@@ -99,8 +104,9 @@ calls fired by timers or by scrolling end up in the WARC/HAR with their real sta
 headers and body; the same URLs are not fetched again by the link extractor. Use
 `--no-auto-scroll` to only wait, or `--browser-settle 0` to collect right after load.
 WebSocket and Server-Sent Events traffic is not captured, nor anything that needs a
-click. Firefox bodies come from BiDi network data collectors (Firefox 144+); Lightpanda
-does not load images.
+click (for that, drive the page with `crau.browser` and record it yourself). Firefox bodies
+come from BiDi network data collectors, which Firefox ESR 140 does not have: use a current
+Firefox. Lightpanda does not load images.
 
 ### Extracting data from an archive
 
@@ -153,6 +159,38 @@ Where:
   `backup/www.example.com/contact.html` will be archived as
   `<start-url>/contact.html`).
 
+
+## Browser automation
+
+The same browser layer is available on its own, with no dependency besides the standard
+library (`pip install crau` is enough):
+
+```bash
+crau page text https://example.com                     # rendered text; also html, js, outline, cookies
+crau page screenshot https://example.com shot.png -f   # full-page PNG; `crau page pdf` for PDF
+crau har capture https://example.com out.har           # everything the page requested, unfiltered
+crau har summary out.har -M json                       # endpoints and the shape of their bodies
+crau browser start work && crau tab open work https://example.com/login
+crau page js tab:1 "document.title" -i work && crau browser stop work
+crau search "open data brazil"
+```
+
+```python
+import asyncio
+from crau.browser import Browser
+
+async def main():
+    async with Browser("firefox") as browser:
+        tab = await browser.new_tab("https://example.com", wait_selector="h1")
+        await tab.click("text=More information")
+        print(await tab.evaluate("document.title"))
+
+asyncio.run(main())
+```
+
+`crau skill` prints an agent skill (a `SKILL.md`) that teaches an AI agent to use all of this;
+`crau skill -l` lists its reference documents and `crau skill -r NAME` prints one. Complete
+scripts live in `examples/`.
 
 ## Using crau as a library
 
@@ -247,6 +285,11 @@ the linter:
 pytest
 ruff check --select F crau tests
 ```
+
+Tests that drive real browsers are skipped when a browser is not installed (`REQUIRE_BROWSERS=1`
+turns that into a failure). `make build && make start && make test` runs everything in a
+container that has the three browsers; `TESTING.md` has the details and `AGENTS.md` the
+conventions of the browser package.
 
 `scripts/smoke_test.py` runs the archiver against a real site with every backend
 that is installed (`--backend all`).
