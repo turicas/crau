@@ -151,6 +151,9 @@ class Browser:
             self._backend = await backend_class.connect(
                 endpoint, self.name, self.timeout, stealth=self.stealth, insecure=self.insecure
             )
+            needs_override = self.name == "chromium" and self.stealth and self.options.headless
+            if needs_override and self._process is not None and not self._process.user_agent_at_launch:
+                await self._backend.hide_headless_token()
             if not self.version:  # connected to an endpoint: ask the browser itself, if it can tell
                 try:
                     self.version = await self._backend.version()

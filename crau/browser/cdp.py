@@ -73,6 +73,7 @@ class CdpBrowser:
         self._closed: set[str] = set()
         self._headers: dict[str, str] = {}
         self._cookies: list[dict[str, Any]] = []
+        self._user_agent_override: str | None = None
         connection.add_listener(self._dispatch)
 
     @classmethod
@@ -90,6 +91,18 @@ class CdpBrowser:
 
     async def version(self) -> str:
         return (await self.connection.call("Browser.getVersion")).get("product", "")
+
+    async def hide_headless_token(self) -> None:
+        """Last resort for when the User-Agent could not go in as a launch flag (unknown browser version).
+
+        Every tab gets the browser's own User-Agent minus the token through a protocol override. Without
+        `userAgentMetadata` that empties the client hints, which is why the launch flag is preferred.
+        """
+        native = (await self.connection.call("Browser.getVersion")).get("userAgent", "")
+        if "HeadlessChrome" in native:
+            self._user_agent_override = native.replace("HeadlessChrome", "Chrome")
+            for tab in self._tabs.values():
+                await tab.call("Network.setUserAgentOverride", {"userAgent": self._user_agent_override})
 
     async def _attach(self, target_id: str) -> CdpTab:
         attached = await self.connection.call("Target.attachToTarget", {"targetId": target_id, "flatten": True})
@@ -186,6 +199,8 @@ class CdpTab:
             await self.call("Network.enable", {"maxTotalBufferSize": 256 << 20, "maxResourceBufferSize": 64 << 20})
         except ProtocolError:
             await self.call("Network.enable")
+        if self.browser._user_agent_override:
+            await self.call("Network.setUserAgentOverride", {"userAgent": self.browser._user_agent_override})
         if self.browser._headers:
             await self.apply_headers(self.browser._headers)
         if self.browser.browser_name == "lightpanda" and self.browser._cookies:

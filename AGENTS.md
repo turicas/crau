@@ -6,7 +6,7 @@
 ## Commands
 
 - In the `dev` container (three browsers installed): `make build`, `make start`, `make test`, `make smoke`. One test:
-  `make test TEST_ARGS="tests/browser/integration/test_browser_state.py -k har -x"`. Without a browser: `make test-unit`.
+  `make test TEST_ARGS="tests/browser/integration/test_browser_state.py -k har -x"`. No browser: `make test-unit`.
 - Outside the container: `pytest`; browser tests are skipped when a binary is missing, and `REQUIRE_BROWSERS=1` (set
   in the image) turns that into a failure. Formatting: `make fix-imports`. Lint: `ruff check --select F crau tests`.
 

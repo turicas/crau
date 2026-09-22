@@ -217,3 +217,20 @@ async def test_explicit_debugging_port_is_used(site):
         assert f":{port}/" in browser._process.endpoint
         tab = await browser.new_tab(site.url + "/final", apply_viewport=False)
         assert await tab.title() == "Final"
+
+
+async def test_headless_token_is_hidden_even_when_the_version_is_unknown(site, tmp_path):
+    """Without a version there is no launch flag to build; the token is then removed with a protocol override."""
+    from browsers import require_browser
+
+    from crau.browser.launch import find_binary
+
+    require_browser("chromium")
+    wrapper = tmp_path / "chromium-without-version"
+    wrapper.write_text(f'#!/bin/sh\n[ "$1" = "--version" ] && exit 1\nexec "{find_binary("chromium")}" "$@"\n')
+    wrapper.chmod(0o755)
+    async with Browser("chromium", binary=wrapper) as browser:
+        tab = await browser.new_tab()
+        headers = await echoed_headers(tab, site)
+        assert "Chrome/" in headers["user-agent"] and "Headless" not in headers["user-agent"]
+        assert "Headless" not in await tab.evaluate("navigator.userAgent")

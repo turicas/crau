@@ -240,6 +240,7 @@ class BrowserProcess:
         self.profile: Path | None = None
         self.run_dir: Path | None = None
         self.temporary_profile = False
+        self.user_agent_at_launch = False
         self._process: subprocess.Popen | None = None
 
     @property
@@ -261,9 +262,11 @@ class BrowserProcess:
         environment.setdefault("LIGHTPANDA_DISABLE_TELEMETRY", "true")
         # plain Popen on purpose: asyncio kills its subprocesses when the event loop closes, and a named instance
         # must outlive the process (and the loop) that started it
+        command = build_command(options, binary, self.profile, self.version)
+        self.user_agent_at_launch = any(argument.startswith("--user-agent") for argument in command)
         with self.log_path.open("wb") as log:
             self._process = subprocess.Popen(
-                build_command(options, binary, self.profile, self.version),
+                command,
                 stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=log,
