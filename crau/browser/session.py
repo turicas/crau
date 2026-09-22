@@ -350,6 +350,9 @@ class Tab:
         when `timeout` is reached (the hard cap for pages that never go quiet). The result has `settle_seconds`,
         `scroll_steps` and `pending` (requests still in flight).
         """
+        if self.browser.name == "lightpanda":
+            # no layout: scrollHeight is a constant 100000000 and scrollY grows forever, so the bottom never comes
+            scroll = False
         started = time.perf_counter()
         at_bottom = not scroll
         last_height = None

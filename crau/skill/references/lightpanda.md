@@ -14,6 +14,8 @@ everything below was measured on nightly 9608/9610 (September 2026).
 Quirks seen:
 - No named form access (`form.fieldName` is `undefined`); pages that rely on it break silently.
 - `querySelectorAll("a, b")` returns matches grouped by selector instead of document order (`outline()` re-sorts).
+- `document.documentElement.scrollHeight` is a constant 100000000 and `scrollBy` always moves, so "scroll to the
+  bottom" never ends; `settle(scroll=True)` and `-r` skip scrolling on Lightpanda.
 - The `Cookie` request header in CDP events is one character short, although the server receives it whole.
 - Uncaught page errors are not reported through `Runtime.exceptionThrown`, so `tab.console` stays empty for them.
 - `Accessibility.getFullAXTree` without parameters answers `InvalidParams`.

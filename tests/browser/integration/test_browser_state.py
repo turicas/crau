@@ -196,9 +196,12 @@ async def test_settle_reports_scrolling_and_pending_requests(browser_name, site)
         stats = await tab.settle(10, idle=0.3, minimum=0.5)
         assert await tab.evaluate("document.querySelector('#out').textContent") == "slow-done"
         assert stats["pending"] == 0 and stats["scroll_steps"] == 0 and 0.5 <= stats["settle_seconds"] < 10
-        if browser_name != "lightpanda":
-            await tab.goto(site.url + "/")
-            assert (await tab.settle(10, scroll=True))["scroll_steps"] >= 2
+        await tab.goto(site.url + "/")
+        scrolled = await tab.settle(10, scroll=True)
+        if browser_name == "lightpanda":  # nothing to scroll without layout: it must not run until the timeout
+            assert scrolled["scroll_steps"] == 0 and scrolled["settle_seconds"] < 5
+        else:
+            assert scrolled["scroll_steps"] >= 2
 
 
 async def test_explicit_debugging_port_is_used(site):
