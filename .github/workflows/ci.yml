@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    name: Tests without browsers (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -r requirements-development.txt
+      - run: pytest --ignore=tests/browser/integration
+
+  bare-install:
+    name: pip install crau brings no dependency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install .
+      - run: test "$(pip list --format=freeze | grep -v -i -E '^(crau|pip|setuptools|wheel)==' | wc -l)" -eq 0
+      - run: crau --help && crau skill | head -5 && crau browser doctor || test $? -eq 3
+
+  container:
+    name: Browsers on Debian (Docker image)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - run: make build-ci
+      - run: make test-ci
+      - run: docker compose run --rm dev python tests/browser/smoke.py
+
+  ubuntu:
+    name: Browsers on Ubuntu (crau browser install on the runner)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      REQUIRE_BROWSERS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-development.txt && pip install --no-deps -e .
+      - run: sudo "$(which python)" -m crau browser install all --verbose
+      - run: crau browser doctor
+      - run: pytest
+
+  alpine:
+    name: crau browser install on Alpine
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install chromium and firefox with apk, then load a page with each
+        run: |
+          docker run --rm --init --shm-size 1g -v "$PWD:/app" -w /app python:3.14-alpine sh -ec '
+            python -m crau browser install chromium firefox --verbose
+            python -m crau browser install lightpanda && exit 1 || test $? -eq 3
+            python tests/browser/testsite.py 8765 & sleep 2
+            for name in chromium firefox; do
+              python -m crau page js http://127.0.0.1:8765/form "document.title" -b "$name" | grep -q Form
+            done
+          '
