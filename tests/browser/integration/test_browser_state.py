@@ -199,3 +199,18 @@ async def test_settle_reports_scrolling_and_pending_requests(browser_name, site)
         if browser_name != "lightpanda":
             await tab.goto(site.url + "/")
             assert (await tab.settle(10, scroll=True))["scroll_steps"] >= 2
+
+
+async def test_explicit_debugging_port_is_used(site):
+    import socket
+
+    from browsers import require_browser
+
+    require_browser("chromium")
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    async with Browser("chromium", port=port) as browser:
+        assert f":{port}/" in browser._process.endpoint
+        tab = await browser.new_tab(site.url + "/final", apply_viewport=False)
+        assert await tab.title() == "Final"

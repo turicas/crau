@@ -127,7 +127,8 @@ class NetworkMonitor:
 
     async def _fetch_bodies(self, record: NetworkRecord) -> None:
         try:
-            if self.bodies_available and 200 <= record.status and record.status not in (204, 304):
+            # redirects and empty statuses have no body a browser can hand over
+            if self.bodies_available and record.status not in (204, 304) and not 300 <= record.status < 400:
                 record.body = await self._backend.response_body(record.key)
             if record.has_post_data and record.post_data is None:
                 record.post_data = await self._backend.request_body(record.key)

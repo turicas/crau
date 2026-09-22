@@ -295,7 +295,11 @@ class BrowserProcess:
         if browser == "chromium":
             port_file = self.profile / "DevToolsActivePort"
             lines = port_file.read_text().split() if port_file.exists() else []
-            return f"ws://127.0.0.1:{lines[0]}{lines[1]}" if len(lines) >= 2 else None
+            if len(lines) >= 2:
+                return f"ws://127.0.0.1:{lines[0]}{lines[1]}"
+            # with an explicit --remote-debugging-port Chromium does not write the file, only the log line
+            match = re.search(r"DevTools listening on (ws://\S+)", self._log_text())
+            return match.group(1) if match else None
         if browser == "firefox":
             match = re.search(r"WebDriver BiDi listening on (ws://[^\s]+)", self._log_text())
             return f"{match.group(1)}/session" if match else None

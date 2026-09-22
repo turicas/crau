@@ -151,8 +151,11 @@ class Browser:
             self._backend = await backend_class.connect(
                 endpoint, self.name, self.timeout, stealth=self.stealth, insecure=self.insecure
             )
-            if not self.version:  # connected to an endpoint: ask the browser itself
-                self.version = await self._backend.version()
+            if not self.version:  # connected to an endpoint: ask the browser itself, if it can tell
+                try:
+                    self.version = await self._backend.version()
+                except ProtocolError:
+                    self.version = ""
             if self._initial_cookies is not None:
                 await self.set_cookies(self._initial_cookies)
             if self._initial_headers is not None:
@@ -218,10 +221,10 @@ class Browser:
             self._tabs[backend_tab.id] = Tab(self, backend_tab)
         return self._tabs[backend_tab.id]
 
-    async def new_tab(self, url: str | None = None, **goto_options: Any) -> Tab:
+    async def new_tab(self, url: str | None = None, *, apply_viewport: bool = True, **goto_options: Any) -> Tab:
         """Open a tab; with `url`, also navigate (accepts every `Tab.goto` option)."""
         tab = self._wrap(await self._require_backend().new_tab())
-        if self.name != "lightpanda":
+        if apply_viewport and self.name != "lightpanda":
             await tab.set_viewport(*self.viewport)
         if url is not None:
             await tab.goto(url, **goto_options)
