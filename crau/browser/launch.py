@@ -52,6 +52,8 @@ class LaunchOptions:
     user_agent: str | None = None
     sandbox: bool = False
     insecure: bool = False
+    host: str = "127.0.0.1"
+    port: int | None = None  # None: the browser picks a free one and announces it
     extra_args: list[str] = field(default_factory=list)
     prefs: dict[str, object] = field(default_factory=dict)
     timeout: float = 30.0
@@ -66,6 +68,9 @@ def find_binary(browser: str, explicit: Path | None = None) -> Path:
         path = Path(configured).expanduser()
         if path.is_file() and os.access(path, os.X_OK):
             return path
+        on_path = shutil.which(str(configured))  # a bare command name, e.g. "google-chrome"
+        if on_path:
+            return Path(on_path)
         raise LaunchError(f"{browser} binary {str(path)!r} does not exist or is not executable")
     local_bin = Path.home() / ".local" / "bin"
     for name in BINARY_NAMES[browser]:
@@ -113,7 +118,7 @@ def build_command(options: LaunchOptions, binary: Path, profile: Path, version_t
     if options.browser == "chromium":
         command = [
             str(binary),
-            "--remote-debugging-port=0",
+            f"--remote-debugging-port={options.port or 0}",
             f"--user-data-dir={profile}",
             f"--window-size={width},{height}",
             "--no-first-run",
@@ -137,12 +142,13 @@ def build_command(options: LaunchOptions, binary: Path, profile: Path, version_t
             command.append(f"--user-agent={user_agent}")
         return command + list(options.extra_args) + ["about:blank"]
     if options.browser == "firefox":
-        command = [str(binary), "--remote-debugging-port=0", "-profile", str(profile), "-no-remote", "-new-instance"]
+        command = [str(binary), f"--remote-debugging-port={options.port or 0}", "-profile", str(profile)]
+        command += ["-no-remote", "-new-instance"]
         command += ["--width", str(width), "--height", str(height)]
         if options.headless:
             command.append("--headless")
         return command + list(options.extra_args) + ["about:blank"]
-    command = [str(binary), "serve", "--host", "127.0.0.1", "--port", "0", "--log-level", "info"]
+    command = [str(binary), "serve", "--host", options.host, "--port", str(options.port or 0), "--log-level", "info"]
     if options.user_agent:
         command += ["--user-agent", options.user_agent]
     if options.insecure:
@@ -293,8 +299,8 @@ class BrowserProcess:
         if browser == "firefox":
             match = re.search(r"WebDriver BiDi listening on (ws://[^\s]+)", self._log_text())
             return f"{match.group(1)}/session" if match else None
-        match = re.search(r"127\.0\.0\.1:(\d+)", self._log_text())
-        return f"ws://127.0.0.1:{match.group(1)}/" if match else None
+        match = re.search(r"address=[^:\s]+:(\d+)", self._log_text())
+        return f"ws://{self.options.host}:{match.group(1)}/" if match else None
 
     def _log_text(self) -> str:
         return self.log_path.read_text(encoding="utf-8", errors="replace") if self.log_path.exists() else ""

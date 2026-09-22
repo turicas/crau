@@ -172,3 +172,30 @@ async def test_browser_leaves_no_process_no_core_file_and_no_temp_dir(browser_na
     assert not group_is_running(group)  # zombies may linger when PID 1 does not reap, live processes may not
     assert not run_dir.exists()
     assert list(tmp_path.glob("core*")) == []
+
+
+async def test_connect_drives_a_browser_that_is_already_running(full_browser_name, site):
+    from crau.browser.launch import BrowserProcess, LaunchOptions
+
+    process = await BrowserProcess(LaunchOptions(browser=full_browser_name)).start()
+    try:
+        for _ in range(2):  # disconnecting must leave the browser usable for the next client
+            async with Browser.connect(process.endpoint, full_browser_name) as browser:
+                assert browser.version
+                tab = await browser.new_tab(site.url + "/final")
+                assert await tab.title() == "Final"
+                await tab.close()
+        assert group_is_running(process.pid)
+    finally:
+        process.stop()
+
+
+async def test_settle_reports_scrolling_and_pending_requests(browser_name, site):
+    async with Browser(browser_name) as browser:
+        tab = await browser.new_tab(site.url + "/slow")
+        stats = await tab.settle(10, idle=0.3, minimum=0.5)
+        assert await tab.evaluate("document.querySelector('#out').textContent") == "slow-done"
+        assert stats["pending"] == 0 and stats["scroll_steps"] == 0 and 0.5 <= stats["settle_seconds"] < 10
+        if browser_name != "lightpanda":
+            await tab.goto(site.url + "/")
+            assert (await tab.settle(10, scroll=True))["scroll_steps"] >= 2

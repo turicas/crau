@@ -214,7 +214,9 @@ class BidiBrowser:
             return None
         try:
             result = await self.connection.call(
-                "network.getData", {"dataType": data_type, "collector": collector, "request": request_id}
+                "network.getData",
+                # disown: each body is read once, and Firefox frees it instead of holding it until the budget is full
+                {"dataType": data_type, "collector": collector, "request": request_id, "disown": True},
             )
         except ProtocolError:
             return None
@@ -285,16 +287,18 @@ class BidiTab:
                     "headers": header_pairs(request.get("headers")),
                     "post_data": None,
                     "has_post_data": bool(request.get("bodySize")),
-                    "time": params.get("timestamp", 0) / 1000.0,
+                    "time": self._request_time(params, timings),
                     "resource_type": request.get("destination", "") or request.get("initiatorType", "") or "",
                     "is_navigation": bool(params.get("navigation")) and is_top_level,
                 }
             ]
         if method == "network.responseCompleted":
             response = params.get("response", {})
-            wait = -1
+            wait = duration = -1
             if timings.get("responseStart") and timings.get("requestTime"):
                 wait = timings["responseStart"] - timings["requestTime"]
+            if timings.get("responseEnd") is not None and timings.get("requestTime") is not None:
+                duration = timings["responseEnd"] - timings["requestTime"]
             return [
                 {"kind": "request_headers", "id": key, "headers": header_pairs(request.get("headers"))},
                 {
@@ -307,13 +311,22 @@ class BidiTab:
                     "mime_type": response.get("mimeType", ""),
                     "protocol": response.get("protocol", ""),
                     "remote_ip": "",
+                    "remote_port": 0,
                     "wait_ms": wait,
+                    "duration_ms": duration,
                 },
                 {"kind": "finished", "id": key, "encoded_size": response.get("bytesReceived", 0)},
             ]
         if method == "network.fetchError":
             return [{"kind": "failed", "id": key, "error": params.get("errorText", "")}]
         return []
+
+    @staticmethod
+    def _request_time(params: dict[str, Any], timings: dict[str, Any]) -> float:
+        """Epoch seconds the request started: `timeOrigin + requestTime` when Firefox reports them."""
+        if timings.get("timeOrigin") and timings.get("requestTime") is not None:
+            return (timings["timeOrigin"] + timings["requestTime"]) / 1000.0
+        return params.get("timestamp", 0) / 1000.0
 
     # --- page primitives ------------------------------------------------------------------------------------------
 

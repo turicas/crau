@@ -94,3 +94,21 @@ def test_find_binary_errors_are_actionable(tmp_path, monkeypatch):
     with pytest.raises(LaunchError, match="Unknown browser"):
         find_binary("netscape")
     assert os.environ["PATH"] == str(tmp_path)
+
+
+def test_explicit_port_and_host_are_honoured():
+    chromium = build_command(LaunchOptions(port=9222), BINARY, PROFILE, "Chromium 151.0.7922.137")
+    assert "--remote-debugging-port=9222" in chromium
+    firefox = build_command(LaunchOptions(browser="firefox", port=9223), BINARY, PROFILE)
+    assert "--remote-debugging-port=9223" in firefox
+    lightpanda = build_command(LaunchOptions(browser="lightpanda", host="0.0.0.0", port=9224), BINARY, PROFILE)
+    assert lightpanda[1:6] == ["serve", "--host", "0.0.0.0", "--port", "9224"]
+
+
+def test_explicit_binary_may_be_a_command_name(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "my-chrome").write_text("#!/bin/sh\n")
+    (bin_dir / "my-chrome").chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir))
+    assert find_binary("chromium", "my-chrome") == bin_dir / "my-chrome"

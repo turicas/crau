@@ -26,6 +26,7 @@ cookies=None, headers=None, extra_args=(), prefs=None, binary=None, sandbox=Fals
 | `binary` | executable; otherwise `CRAU_<BROWSER>`, then `PATH`, then `~/.local/bin` |
 | `sandbox` | keep Chromium's sandbox on (off by default: it does not start in most containers) |
 | `insecure` | accept invalid TLS certificates |
+| `host`, `port` | debugging address; by default the browser picks a free port itself |
 | `timeout` | seconds for launch, each navigation and each wait |
 
 Use it as `async with Browser(...) as browser:` (or `await browser.start()` / `await browser.close()`).
@@ -37,6 +38,8 @@ Use it as `async with Browser(...) as browser:` (or `await browser.start()` / `a
 - `await browser.set_headers(headers_or_path)`: replaces the previous extra headers
 - `browser.version`: e.g. `Mozilla Firefox 156.0`
 - `Browser.attach(name)`: drive a named instance; closing only detaches
+- `Browser.connect(endpoint, browser="chromium")`: drive a browser that is already running, given its WebSocket
+  endpoint (`webSocketDebuggerUrl` for CDP, `ws://host:port/session` for Firefox); closing only disconnects
 - `await browser.start_instance(name)`: launch and register under `name`; the browser survives this process
 
 `instances.list_all()`, `instances.load(name)`, `instances.stop(name)` manage named instances from Python.
@@ -51,6 +54,8 @@ Targets are CSS selectors, `text=Visible text` (links, buttons and labels first,
   when the page cannot be loaded, not on HTTP errors
 - `await tab.wait(*, selector=None, js=None, idle=False, scroll=False, ms=0, timeout=None)`: `selector`/`js` raise
   `WaitTimeout`; `idle` (no requests in flight for 500 ms) and `scroll` are best effort, capped at 15 s
+- `await tab.settle(timeout=15.0, *, idle=0.5, minimum=1.0, scroll=False)`: what `wait(idle=..., scroll=...)` runs;
+  returns `{settle_seconds, scroll_steps, pending}`
 - `await tab.evaluate(expression, *, await_promise=True)`: plain data back (`undefined`/`null` -> `None`); `JsError` on
   exceptions; statements are fine: `"const a = 1; a + 1"`
 - `await tab.call_function("(a, b) => ...", *args)`: arguments are JSON-encoded

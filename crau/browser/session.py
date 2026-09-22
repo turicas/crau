@@ -71,6 +71,8 @@ class Browser:
         binary: str | Path | None = None,
         sandbox: bool = False,
         insecure: bool = False,
+        host: str = "127.0.0.1",
+        port: int | None = None,
         timeout: float = 30.0,
     ) -> None:
         self.name = browser
@@ -89,6 +91,8 @@ class Browser:
             user_agent=user_agent,
             sandbox=sandbox,
             insecure=insecure,
+            host=host,
+            port=port,
             extra_args=list(extra_args),
             prefs=dict(prefs or {}),
             timeout=timeout,
@@ -100,6 +104,22 @@ class Browser:
         self._backend: CdpBrowser | BidiBrowser | None = None
         self._tabs: dict[str, Tab] = {}
         self._keep_running = False
+
+    @classmethod
+    def connect(cls, endpoint: str, browser: str = "chromium", *, stealth: bool = True, timeout: float = 30.0) -> Browser:
+        """Drive a browser that is already running, given its WebSocket endpoint. Closing only disconnects.
+
+        `endpoint` is the browser-level CDP URL (`webSocketDebuggerUrl` of `/json/version`) for Chromium and
+        Lightpanda, or `ws://host:port/session` for Firefox.
+        """
+        instance = instances.Instance(
+            name="", browser=browser, pid=0, endpoint=endpoint, profile="", run_dir="", temporary_profile=False,
+            version="", started_at=0.0, stealth=stealth,
+        )  # fmt: skip
+        connected = cls(browser, stealth=stealth, timeout=timeout)
+        connected._instance = instance
+        connected._keep_running = True
+        return connected
 
     @classmethod
     def attach(cls, instance_name: str, *, timeout: float = 30.0) -> Browser:
@@ -131,6 +151,8 @@ class Browser:
             self._backend = await backend_class.connect(
                 endpoint, self.name, self.timeout, stealth=self.stealth, insecure=self.insecure
             )
+            if not self.version:  # connected to an endpoint: ask the browser itself
+                self.version = await self._backend.version()
             if self._initial_cookies is not None:
                 await self.set_cookies(self._initial_cookies)
             if self._initial_headers is not None:
@@ -299,7 +321,7 @@ class Tab:
         if js:
             await self._poll(f"Boolean({js})", timeout, f"expression {js!r}")
         if idle or scroll:
-            await self._settle(min(timeout, 15.0), scroll)
+            await self.settle(min(timeout, 15.0), scroll=scroll)
         if ms:
             await asyncio.sleep(ms / 1000)
 
@@ -315,19 +337,35 @@ class Tab:
                 raise WaitTimeout(f"Timed out after {timeout:.1f}s waiting for {description}")
             await asyncio.sleep(0.1)
 
-    async def _settle(self, timeout: float, scroll: bool, quiet: float = 0.5, minimum: float = 1.0) -> None:
+    async def settle(
+        self, timeout: float = 15.0, *, idle: float = 0.5, minimum: float = 1.0, scroll: bool = False
+    ) -> dict[str, Any]:
+        """Wait for late requests (XHR, lazy images, infinite scroll) and report what happened.
+
+        With `scroll`, moves one viewport at a time until the page stops growing. Returns once at least `minimum`
+        seconds have passed and nothing has started or finished for `idle` seconds with no request in flight, or
+        when `timeout` is reached (the hard cap for pages that never go quiet). The result has `settle_seconds`,
+        `scroll_steps` and `pending` (requests still in flight).
+        """
         started = time.perf_counter()
         at_bottom = not scroll
         last_height = None
+        scroll_steps = 0
         while time.perf_counter() - started < timeout:
             if not at_bottom:
                 step = await self._backend.evaluate(javascript.call(javascript.SCROLL_STEP), await_promise=False) or {}
+                scroll_steps += 1
                 at_bottom = not step.get("moved") and step.get("height") == last_height
                 last_height = step.get("height")
             elapsed = time.perf_counter() - started
-            if at_bottom and elapsed >= minimum and not self._monitor.inflight and self._monitor.quiet_for() >= quiet:
-                return
+            if at_bottom and elapsed >= minimum and not self._monitor.inflight and self._monitor.quiet_for() >= idle:
+                break
             await asyncio.sleep(0.1)
+        return {
+            "settle_seconds": time.perf_counter() - started,
+            "scroll_steps": scroll_steps,
+            "pending": len(self._monitor.inflight),
+        }
 
     # --- reading --------------------------------------------------------------------------------------------------
 

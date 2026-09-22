@@ -25,7 +25,9 @@ class NetworkRecord:
     mime_type: str = ""
     protocol: str = ""
     remote_ip: str = ""
+    remote_port: int = 0
     wait_ms: float = -1
+    duration_ms: float = -1
     encoded_size: int = 0
     body: bytes | None = None
     error: str | None = None
@@ -108,6 +110,7 @@ class NetworkMonitor:
             record.response_headers = self._early_headers.pop((key, "response"), None) or event["headers"]
             record.mime_type, record.protocol = event["mime_type"], event["protocol"]
             record.remote_ip, record.wait_ms = event["remote_ip"], event["wait_ms"]
+            record.remote_port, record.duration_ms = event.get("remote_port", 0), event.get("duration_ms", -1)
         elif kind == "finished":
             record.finished, record.encoded_size = True, event["encoded_size"]
             self.inflight.discard(key)

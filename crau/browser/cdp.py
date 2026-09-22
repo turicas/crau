@@ -291,7 +291,9 @@ class CdpTab:
             "mime_type": response.get("mimeType", ""),
             "protocol": response.get("protocol", ""),
             "remote_ip": response.get("remoteIPAddress", ""),
+            "remote_port": int(response.get("remotePort") or 0),
             "wait_ms": timing.get("receiveHeadersEnd", -1),
+            "duration_ms": timing.get("receiveHeadersEnd", -1),
         }
 
     # --- page primitives ------------------------------------------------------------------------------------------
