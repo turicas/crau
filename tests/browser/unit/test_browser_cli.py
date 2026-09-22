@@ -28,7 +28,7 @@ def test_help_is_fast_and_lists_the_browser_commands():
     result = subprocess.run([*CRAU, "--help"], capture_output=True, text=True, timeout=30, check=True)
     assert time.perf_counter() - started < 0.5  # the CLI guide asks for 100 ms; the margin absorbs slow CI machines
     assert result.stderr == ""
-    for command in ("archive", "browser", "tab", "page", "har", "search"):
+    for command in ("archive", "browser", "tab", "page", "har", "search", "skill"):
         assert command in result.stdout
 
 

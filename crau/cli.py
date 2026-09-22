@@ -300,7 +300,7 @@ def create_parser() -> argparse.ArgumentParser:
         help="Inner directory inside archive to retrieve files from",
     )
 
-    # 6. browser automation: browser, tab, page, har and search (standard library only)
+    # 6. browser automation: browser, tab, page, har, search and skill (standard library only)
     from crau.browser.cli import add_commands
 
     add_commands(subparsers)

@@ -21,6 +21,8 @@ setup(
         "all": ["h11", "lxml", "tqdm", "warcio", "websockets", "pywb", "lightpanda"],
     },
     packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
+    # the in-page JavaScript and the agent skill printed by `crau skill`
+    package_data={"crau": ["browser/page.js", "skill/SKILL.md", "skill/references/*.md"]},
     keywords="web crawling scraping archiving warc har",
     entry_points={"console_scripts": ["crau = crau.cli:cli"]},
     classifiers=[

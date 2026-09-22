@@ -348,6 +348,27 @@ async def _doctor(args) -> int:
     return 0 if usable else 3
 
 
+# --- skill --------------------------------------------------------------------------------------------------------
+
+SKILL_DIR = Path(__file__).resolve().parent.parent / "skill"
+
+
+def _skill(args) -> int:
+    """Print the agent skill shipped with this version, so the instructions always match the installed commands."""
+    references = {path.stem: path for path in sorted((SKILL_DIR / "references").glob("*.md"))}
+    if args.list:
+        _write("\n".join(references), None)
+        return 0
+    if args.reference:
+        name = args.reference.removesuffix(".md")
+        if name not in references:
+            raise UsageError(f"no reference named {args.reference!r}. Options: {', '.join(references)}")
+        _write(references[name].read_text(encoding="utf-8"), None)
+        return 0
+    _write((SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"), None)
+    return 0
+
+
 def _search(args) -> int:
     from . import search
 
@@ -366,7 +387,7 @@ HANDLERS = {
     "browser start": _instance_start, "browser stop": _instance_stop, "browser status": _instance_list,
     "browser doctor": _doctor, "browser install": _install,
     "tab list": _tab_list, "tab open": _tab_open, "tab close": _tab_close,
-    "search": _search,
+    "search": _search, "skill": _skill,
 }  # fmt: skip
 
 

@@ -1,4 +1,4 @@
-"""Browser commands of the `crau` command line: `browser`, `tab`, `page`, `har` and `search`.
+"""Browser commands of the `crau` command line: `browser`, `tab`, `page`, `har`, `search` and `skill`.
 
 View layer only: parsing, output and exit codes; the work is done by the library.
 """
@@ -23,7 +23,7 @@ EXIT_CODES = """exit codes:
   8    HTTP status >= 400 (only with --fail-on-http-error)
   130  interrupted (Ctrl+C)"""
 URL_HELP = "URL to open, or tab:N to use tab N of --instance as it is (no navigation)"
-COMMANDS = ("browser", "tab", "page", "har", "search")
+COMMANDS = ("browser", "tab", "page", "har", "search", "skill")
 
 
 def parse_viewport(value: str) -> tuple[int, int]:
@@ -175,6 +175,10 @@ def add_commands(subparsers) -> None:
         "search", help="Search the web through a real browser", description=search.__doc__, formatter_class=raw
     )
     search.configure_parser(search_parser)
+
+    skill = subparsers.add_parser("skill", help="Print the agent skill (SKILL.md) that teaches an AI agent to use crau")
+    skill.add_argument("-r", "--reference", metavar="name", help="Print this reference document instead")
+    skill.add_argument("-l", "--list", action="store_true", help="List the reference documents")
 
 
 def _configure_page(parser: argparse.ArgumentParser, page: argparse.ArgumentParser) -> None:
