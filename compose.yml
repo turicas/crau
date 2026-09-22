@@ -1,0 +1,13 @@
+services:
+  dev:
+    build:
+      context: .
+      args:
+        UID: ${HOST_UID:-1000}
+        GID: ${HOST_GID:-1000}
+    init: true          # PID 1 that reaps: browsers leave helper processes behind when they die
+    shm_size: 1gb       # Chromium and Firefox use /dev/shm heavily
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: sleep infinity
