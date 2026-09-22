@@ -107,8 +107,12 @@ BING = """<!doctype html><html><head><meta charset="utf-8"><title>q - Bing</titl
 <li class="b_ad"><h2><a href="https://ads.example/">Sponsored</a></h2></li>
 </ol></body></html>"""
 
+FRAMES = """<!doctype html><html><head><meta charset="utf-8"><title>Frames</title></head><body>
+<h1>Outer page</h1><iframe src="/missing-in-frame"></iframe></body></html>"""
+
 PAGES = {
     "/": INDEX,
+    "/frames": FRAMES,
     "/form": FORM,
     "/slow": SLOW,
     "/dialog": DIALOG,

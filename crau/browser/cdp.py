@@ -256,7 +256,10 @@ class CdpTab:
                     "has_post_data": bool(request.get("hasPostData")),
                     "time": params.get("wallTime"),
                     "resource_type": params.get("type", ""),
-                    "is_navigation": params.get("type") == "Document" and request_id == params.get("loaderId"),
+                    # documents loaded by iframes are navigations too: the main frame's id is the target id
+                    "is_navigation": params.get("type") == "Document"
+                    and request_id == params.get("loaderId")
+                    and params.get("frameId") in (None, self.target_id),
                 }
             )
             return events

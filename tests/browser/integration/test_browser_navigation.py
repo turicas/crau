@@ -125,3 +125,10 @@ async def test_viewport_is_applied(full_browser_name, site):
         assert await tab.evaluate("[window.innerWidth, window.innerHeight]") == [1000, 700]
         await tab.set_viewport(640, 480)
         assert await tab.evaluate("[window.innerWidth, window.innerHeight]") == [640, 480]
+
+
+async def test_iframe_documents_are_not_mistaken_for_the_main_document(browser_name, site):
+    async with Browser(browser_name) as browser:
+        tab = await browser.new_tab()
+        response = await tab.goto(site.url + "/frames", wait_idle=True)
+        assert (response.status, response.url) == (200, site.url + "/frames")
